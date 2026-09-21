@@ -151,16 +151,22 @@ function normalizeSearchText(value: string): string {
   return value.normalize('NFKC').trim().toLocaleLowerCase('ja-JP')
 }
 
-export function matchesRecipe(recipe: Recipe, query: string, ingredients: string[]): boolean {
-  const normalizedQuery = normalizeSearchText(query)
-  const textMatches =
-    !normalizedQuery ||
-    [recipe.title, recipe.note, recipe.source].some((value) =>
-      normalizeSearchText(value).includes(normalizedQuery),
-    )
+export function matchesRecipe(recipe: Recipe, query: string, ingredients: string[] = []): boolean {
+  const terms = query
+    .split(/[\s,，、]+/u)
+    .map(normalizeSearchText)
+    .filter(Boolean)
+  const searchableValues = [recipe.title, recipe.note, recipe.source, ...recipe.ingredients].map(
+    normalizeSearchText,
+  )
+  const recipeIngredients = recipe.ingredients.map(normalizeIngredient)
+  const textMatches = terms.every(
+    (term) =>
+      searchableValues.some((value) => value.includes(term)) ||
+      recipeIngredients.some((ingredient) => ingredient.includes(normalizeIngredient(term))),
+  )
 
   if (!textMatches) return false
-  const recipeIngredients = recipe.ingredients.map(normalizeIngredient)
   return ingredients
     .map(normalizeIngredient)
     .filter(Boolean)

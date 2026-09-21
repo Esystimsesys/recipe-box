@@ -23,6 +23,8 @@ import {
   CookingPot,
   PanelLeftClose,
   PanelLeftOpen,
+  Grid2X2,
+  Rows3,
 } from 'lucide-react'
 import {
   exportBackup,
@@ -41,6 +43,7 @@ import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } 
 
 type Page = 'recipes' | 'settings'
 type Filter = 'all' | 'cooked' | 'favorites'
+type CardSize = 'compact' | 'comfortable'
 type ModalState =
   | { type: 'recipe'; recipe?: Recipe }
   | { type: 'detail'; id: string }
@@ -55,7 +58,7 @@ const dateLabel = (date: string) =>
     new Date(`${date.slice(0, 10)}T12:00:00`),
   )
 const titleOf = (recipe: Recipe) =>
-  recipe.title || (recipe.kind === 'paper' ? '紙のレシピ' : `${recipe.source}のレシピ`)
+  recipe.title || (recipe.kind === 'paper' ? '手動登録のレシピ' : `${recipe.source}のレシピ`)
 const changed = (recipe: Recipe): Recipe => ({
   ...recipe,
   updatedAt: new Date(Math.max(Date.now(), Date.parse(recipe.updatedAt) + 1)).toISOString(),
@@ -180,7 +183,7 @@ function PhotoInput({
       </label>
       <p className="fineprint">
         1枚15MBまで・12枚まで。
-        {kind === 'paper' ? '複数ページを順番に追加できます。' : '先頭の写真を表紙にします。'}
+        {kind === 'paper' ? '画像を複数枚追加できます。' : '先頭の写真を表紙にします。'}
       </p>
       {error && (
         <p role="alert" className="error">
@@ -234,8 +237,8 @@ function RecipeForm({
         setDuplicate(existing)
         throw new Error('このURLは登録済みです。')
       }
-      if (kind === 'paper' && !paperPhotos.length)
-        throw new Error('紙のレシピの写真を追加してください。')
+      if (kind === 'paper' && !title.trim() && !paperPhotos.length)
+        throw new Error('レシピ名を入力するか、レシピの画像を追加してください。')
       const now = new Date().toISOString()
       const recipe: Recipe = {
         id: initial?.id || newId(),
@@ -287,7 +290,7 @@ function RecipeForm({
                 onClick={() => setKind('paper')}
               >
                 <FileImage size={18} />
-                紙のレシピから
+                手動で登録
               </button>
             </div>
           )}
@@ -310,21 +313,23 @@ function RecipeForm({
               />
               <small>URLだけでも保存できます。</small>
             </div>
-          ) : (
-            <PhotoInput
-              label="紙のレシピ写真"
-              kind="paper"
-              photos={paperPhotos}
-              onChange={setPaperPhotos}
-              onBusy={setPaperBusy}
-            />
-          )}
-          <details className="optional-fields" open={initial ? true : undefined}>
-            <summary>名前・材料・写真・メモ（任意）</summary>
+          ) : null}
+          <details
+            className="optional-fields"
+            open={initial || kind === 'paper' ? true : undefined}
+          >
+            <summary>
+              {kind === 'paper' ? 'レシピの内容' : '名前・材料・写真・メモ（任意）'}
+            </summary>
             <div className="field">
-              <label htmlFor="recipe-title">レシピ名</label>
+              <label htmlFor="recipe-title">
+                レシピ名
+                {kind === 'paper' && !paperPhotos.length && <span className="required"> 必須</span>}
+              </label>
               <input
                 id="recipe-title"
+                autoFocus={kind === 'paper'}
+                required={kind === 'paper' && !paperPhotos.length}
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="例：鶏肉と玉ねぎの甘酢炒め"
@@ -350,10 +355,19 @@ function RecipeForm({
                   id="recipe-source"
                   value={source}
                   onChange={(event) => setSource(event.target.value)}
-                  placeholder="本の名前、ページなど"
+                  placeholder="本・雑誌・SNS・教えてくれた人など"
                   maxLength={200}
                 />
               </div>
+            )}
+            {kind === 'paper' && (
+              <PhotoInput
+                label="レシピの画像"
+                kind="paper"
+                photos={paperPhotos}
+                onChange={setPaperPhotos}
+                onBusy={setPaperBusy}
+              />
             )}
             <PhotoInput
               label="料理の写真"
@@ -475,9 +489,14 @@ function RecipeDetail({
           </a>
         )}
         <div className="detail-head">
-          <p className="eyebrow">{recipe.kind === 'paper' ? '紙のレシピ' : recipe.source}</p>
+          <p className="eyebrow">
+            {recipe.kind === 'paper' ? recipe.source || '手動登録' : recipe.source}
+          </p>
           <h2 className="detail-title">{titleOf(recipe)}</h2>
-          <p className="detail-meta">{recipe.cooked ? '作った' : ''}</p>
+          <p className="detail-meta">
+            <span>追加 {dateLabel(recipe.createdAt)}</span>
+            {recipe.cooked && <span>作った</span>}
+          </p>
         </div>
         {recipe.kind === 'link' && (
           <a
@@ -546,19 +565,17 @@ function RecipeDetail({
             </div>
           </section>
         )}
-        {recipe.kind === 'paper' && (
+        {recipe.kind === 'paper' && !!recipe.paperPhotos.length && (
           <section className="detail-section">
-            <h3>紙のレシピ</h3>
-            {recipe.source && <p className="muted">{recipe.source}</p>}
+            <h3>レシピの画像</h3>
             <div className="paper-grid">
               {recipe.paperPhotos.map((photo, index) => (
                 <button
                   key={photo.id}
                   onClick={() => onPhoto(photo)}
-                  aria-label={`レシピの${index + 1}ページ目を拡大`}
+                  aria-label={`レシピ画像 ${index + 1}を拡大`}
                 >
-                  <img src={photo.dataUrl} alt={`レシピ ${index + 1}ページ目`} />
-                  <span>{index + 1}ページ</span>
+                  <img src={photo.dataUrl} alt={`レシピ画像 ${index + 1}`} />
                 </button>
               ))}
             </div>
@@ -610,6 +627,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('recipes')
   const [sidebarClosed, setSidebarClosed] = useState(() => {
     try {
+      if (window.matchMedia('(max-width: 900px)').matches) return true
       return localStorage.getItem('hitosaji-sidebar-closed') === 'true'
     } catch {
       return false
@@ -619,15 +637,32 @@ export default function App() {
     setSidebarClosed((value) => {
       const next = !value
       try {
-        localStorage.setItem('hitosaji-sidebar-closed', String(next))
+        if (!window.matchMedia('(max-width: 900px)').matches) {
+          localStorage.setItem('hitosaji-sidebar-closed', String(next))
+        }
       } catch {}
       return next
     })
   }
+  useEffect(() => {
+    const narrowScreen = window.matchMedia('(max-width: 900px)')
+    const closeSidebarOnNarrowScreen = (event: MediaQueryListEvent) => {
+      if (event.matches) setSidebarClosed(true)
+    }
+    narrowScreen.addEventListener('change', closeSidebarOnNarrowScreen)
+    return () => narrowScreen.removeEventListener('change', closeSidebarOnNarrowScreen)
+  }, [])
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
-  const [ingredientInput, setIngredientInput] = useState('')
-  const [ingredients, setIngredients] = useState<string[]>([])
+  const [cardSize, setCardSize] = useState<CardSize>(() => {
+    try {
+      return localStorage.getItem('hitosaji-card-size') === 'comfortable'
+        ? 'comfortable'
+        : 'compact'
+    } catch {
+      return 'compact'
+    }
+  })
   const [modal, setModal] = useState<ModalState>(null)
   const [lightbox, setLightbox] = useState<Photo>()
   const [toast, setToast] = useState('')
@@ -713,20 +748,19 @@ export default function App() {
     await saveRecipe(changed({ ...recipe, [field]: !recipe[field] }), recipe.updatedAt)
     await afterWrite('変更しました')
   }
-  function addIngredient(event: FormEvent) {
-    event.preventDefault()
-    const additions = parseIngredients(ingredientInput)
-    setIngredients([...new Set([...ingredients, ...additions])])
-    setIngredientInput('')
+  function changeCardSize(size: CardSize) {
+    setCardSize(size)
+    try {
+      localStorage.setItem('hitosaji-card-size', size)
+    } catch {}
   }
   const filtered = recipes.filter(
     (recipe) =>
-      matchesRecipe(recipe, query, ingredients) &&
+      matchesRecipe(recipe, query) &&
       (filter === 'all' ||
         (filter === 'cooked' && recipe.cooked) ||
         (filter === 'favorites' && recipe.favorite)),
   )
-  const allIngredients = [...new Set(recipes.flatMap((recipe) => recipe.ingredients))].sort()
   const selected =
     modal?.type === 'detail' ? recipes.find((recipe) => recipe.id === modal.id) : undefined
   const navItems: { page: Page; label: string; icon: typeof BookOpen }[] = [
@@ -739,7 +773,10 @@ export default function App() {
         key={item.page}
         className={page === item.page ? 'active' : ''}
         aria-current={page === item.page ? 'page' : undefined}
-        onClick={() => setPage(item.page)}
+        onClick={() => {
+          setPage(item.page)
+          if (window.matchMedia('(max-width: 900px)').matches) setSidebarClosed(true)
+        }}
       >
         <item.icon size={21} />
         <span>{item.label}</span>
@@ -782,15 +819,26 @@ export default function App() {
         本文へ移動
       </a>
       <aside className="sidebar" id="main-sidebar">
-        <a className="brand" href={import.meta.env.BASE_URL} aria-label="ひとさじ ホーム">
-          <span className="brand-mark">
-            <CookingPot size={25} />
-          </span>
-          <div>
-            <strong>ひとさじ</strong>
-            <span>わたしのレシピ帳</span>
-          </div>
-        </a>
+        <div className="sidebar-header">
+          <a className="brand" href={import.meta.env.BASE_URL} aria-label="ひとさじ ホーム">
+            <span className="brand-mark">
+              <CookingPot size={25} />
+            </span>
+            <div>
+              <strong>ひとさじ</strong>
+              <span>わたしのレシピ帳</span>
+            </div>
+          </a>
+          <button
+            className="icon-button sidebar-close"
+            aria-label="メニューを閉じる"
+            aria-expanded="true"
+            aria-controls="main-sidebar"
+            onClick={toggleSidebar}
+          >
+            <PanelLeftClose size={20} />
+          </button>
+        </div>
         <nav className="nav-list" aria-label="メインメニュー">
           {navigation()}
         </nav>
@@ -799,20 +847,59 @@ export default function App() {
           このブラウザに保存
         </p>
       </aside>
+      {!sidebarClosed && (
+        <button
+          type="button"
+          className="sidebar-scrim"
+          aria-label="メニューを閉じる"
+          onClick={toggleSidebar}
+        />
+      )}
       <div className="workspace">
         <header className="topbar">
           <div className="topbar-brand">
-            <button
-              className="icon-button sidebar-toggle"
-              aria-label={sidebarClosed ? 'メニューを開く' : 'メニューを閉じる'}
-              aria-expanded={!sidebarClosed}
-              aria-controls="main-sidebar"
-              onClick={toggleSidebar}
+            {sidebarClosed && (
+              <button
+                className="icon-button sidebar-toggle"
+                aria-label="メニューを開く"
+                aria-expanded="false"
+                aria-controls="main-sidebar"
+                onClick={toggleSidebar}
+              >
+                <PanelLeftOpen size={20} />
+              </button>
+            )}
+            <a
+              className="service-name"
+              href={import.meta.env.BASE_URL}
+              aria-label="ひとさじ トップへ"
             >
-              {sidebarClosed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
-            </button>
-            <span className="eyebrow">ひとさじ</span>
+              ひとさじ
+            </a>
           </div>
+          {page === 'recipes' && (
+            <div className="search-field topbar-search">
+              <Search size={18} aria-hidden="true" />
+              <input
+                name="recipe-search"
+                autoComplete="off"
+                aria-label="レシピを検索"
+                placeholder="レシピ名・材料・メモを検索…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {query && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="検索をクリア"
+                  onClick={() => setQuery('')}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          )}
           <div className="topbar-actions">
             <button
               className="icon-button"
@@ -853,80 +940,6 @@ export default function App() {
             <>
               {page === 'recipes' && (
                 <>
-                  <div className="page-heading">
-                    <div>
-                      <h1>
-                        わたしのレシピ帳<span className="heading-dot">.</span>
-                      </h1>
-                    </div>
-                    <button className="primary" onClick={() => setModal({ type: 'recipe' })}>
-                      <Plus size={19} />
-                      追加
-                    </button>
-                  </div>
-                  <section className="search-panel" aria-label="レシピ検索">
-                    <div className="search-field">
-                      <Search size={20} />
-                      <input
-                        aria-label="レシピを検索"
-                        placeholder="レシピ名やメモから探す"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                      />
-                      {query && (
-                        <button
-                          className="icon-button"
-                          aria-label="検索をクリア"
-                          onClick={() => setQuery('')}
-                        >
-                          <X size={17} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="ingredient-search">
-                      <form className="ingredient-input" onSubmit={addIngredient}>
-                        <Leaf size={18} />
-                        <input
-                          aria-label="検索する材料"
-                          placeholder="材料から探す（例：玉ねぎ）"
-                          list="ingredient-options"
-                          value={ingredientInput}
-                          onChange={(event) => setIngredientInput(event.target.value)}
-                        />
-                        <datalist id="ingredient-options">
-                          {allIngredients.map((ingredient) => (
-                            <option key={ingredient} value={ingredient} />
-                          ))}
-                        </datalist>
-                        <button
-                          className="text-button"
-                          disabled={!ingredientInput.trim()}
-                          aria-label="材料を検索条件に追加"
-                        >
-                          <Plus size={17} />
-                          追加
-                        </button>
-                      </form>
-                    </div>
-                    {!!ingredients.length && (
-                      <div className="selected-ingredients">
-                        <span className="fineprint">すべて含む</span>
-                        {ingredients.map((ingredient) => (
-                          <button
-                            className="chip"
-                            key={ingredient}
-                            onClick={() =>
-                              setIngredients(ingredients.filter((item) => item !== ingredient))
-                            }
-                          >
-                            {ingredient}
-                            <X size={14} />
-                            <span className="sr-only">を検索条件から外す</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </section>
                   <div className="filter-row" aria-label="レシピの絞り込み">
                     {(
                       [
@@ -947,18 +960,17 @@ export default function App() {
                     ))}
                   </div>
                   <div className="results-heading">
-                    <h2>
+                    <h1>
                       {filter === 'all'
                         ? '集めたレシピ'
                         : filter === 'cooked'
                           ? '作ったレシピ'
                           : 'お気に入り'}
                       <span>{filtered.length}</span>
-                    </h2>
-                    <span className="fineprint">新しく追加した順</span>
+                    </h1>
                   </div>
                   {filtered.length ? (
-                    <div className="recipe-grid">
+                    <div className={`recipe-grid ${cardSize}`}>
                       {filtered.map((recipe) => (
                         <article className="recipe-card" key={recipe.id}>
                           <button
@@ -972,7 +984,7 @@ export default function App() {
                                 {recipe.kind === 'paper' ? (
                                   <>
                                     <FileImage size={12} />
-                                    紙のレシピ
+                                    手動登録
                                   </>
                                 ) : (
                                   <>
@@ -984,6 +996,9 @@ export default function App() {
                             </div>
                             <div className="card-body">
                               <h3 className="card-title">{titleOf(recipe)}</h3>
+                              <time className="card-meta" dateTime={recipe.createdAt}>
+                                追加 {dateLabel(recipe.createdAt)}
+                              </time>
                               <div className="ingredient-tags">
                                 {recipe.ingredients.length ? (
                                   <>
@@ -1030,7 +1045,7 @@ export default function App() {
                         </article>
                       ))}
                     </div>
-                  ) : recipes.length || query || ingredients.length || filter !== 'all' ? (
+                  ) : recipes.length || query || filter !== 'all' ? (
                     <div className="empty-state">
                       <Search className="empty-icon" />
                       <h2>該当するレシピがありません</h2>
@@ -1039,8 +1054,6 @@ export default function App() {
                         className="secondary"
                         onClick={() => {
                           setQuery('')
-                          setIngredients([])
-                          setIngredientInput('')
                           setFilter('all')
                         }}
                       >
@@ -1051,9 +1064,13 @@ export default function App() {
                     <div className="empty-state">
                       <BookOpen className="empty-icon" />
                       <h2>レシピはまだありません</h2>
-                      <p>URLや紙の写真から追加できます。</p>
+                      <p>URLや手入力から追加できます。</p>
                     </div>
                   )}
+                  <button className="primary add-fab" onClick={() => setModal({ type: 'recipe' })}>
+                    <Plus size={21} aria-hidden="true" />
+                    追加
+                  </button>
                 </>
               )}
               {page === 'settings' && (
@@ -1066,6 +1083,31 @@ export default function App() {
                     </div>
                   </div>
                   <div className="settings-grid">
+                    <section className="settings-card">
+                      <Grid2X2 className="setting-icon" />
+                      <h2>レシピカードの大きさ</h2>
+                      <p>レシピ一覧に表示するカードの大きさを選べます。</p>
+                      <div className="card-size-control" role="group" aria-label="カードの大きさ">
+                        <button
+                          type="button"
+                          className={cardSize === 'compact' ? 'active' : ''}
+                          aria-pressed={cardSize === 'compact'}
+                          onClick={() => changeCardSize('compact')}
+                        >
+                          <Grid2X2 size={16} aria-hidden="true" />
+                          小さめ
+                        </button>
+                        <button
+                          type="button"
+                          className={cardSize === 'comfortable' ? 'active' : ''}
+                          aria-pressed={cardSize === 'comfortable'}
+                          onClick={() => changeCardSize('comfortable')}
+                        >
+                          <Rows3 size={16} aria-hidden="true" />
+                          大きめ
+                        </button>
+                      </div>
+                    </section>
                     <section className="settings-card">
                       <HardDrive className="setting-icon" />
                       <h2>このブラウザに保存しています</h2>
@@ -1172,9 +1214,6 @@ export default function App() {
           )}
         </main>
       </div>
-      <nav className="mobile-nav" aria-label="モバイルメニュー">
-        {navigation()}
-      </nav>
       {toast && (
         <div className="toast" role="status">
           <Check size={18} />
