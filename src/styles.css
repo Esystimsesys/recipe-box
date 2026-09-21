@@ -535,11 +535,6 @@ textarea:disabled {
   color: var(--pine-dark);
 }
 
-.secondary:hover {
-  border-color: var(--pine);
-  background: var(--pine-pale);
-}
-
 .text-button {
   border: 0;
   background: transparent;
@@ -572,7 +567,6 @@ textarea:disabled {
   color: var(--pine);
 }
 
-.icon-button:hover,
 .icon-button.is-on {
   border-color: rgba(37, 85, 68, 0.35);
   background: var(--pine-pale);
@@ -649,11 +643,28 @@ textarea:disabled {
   color: #59665f;
 }
 
-.filter:hover,
 .filter.active {
   border-color: var(--pine);
   background: var(--pine);
   color: #fff;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .secondary:hover {
+    border-color: var(--pine);
+    background: var(--pine-pale);
+  }
+
+  .icon-button:hover {
+    border-color: rgba(37, 85, 68, 0.35);
+    background: var(--pine-pale);
+  }
+
+  .filter:hover {
+    border-color: var(--pine);
+    background: var(--pine);
+    color: #fff;
+  }
 }
 
 .results-heading,
@@ -1431,6 +1442,10 @@ textarea:disabled {
 .detail-head {
   display: grid;
   gap: 18px;
+}
+
+.detail-source {
+  text-transform: none;
 }
 
 .detail-title {

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { cookpadPreviewUrl } from './preview'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cookpadPreviewUrl, fetchLinkMetadata, oEmbedUrl } from './preview'
 
 const ogp = (id: string) => `https://og-image.cookpad.com/global/jp/recipe/${id}`
 
@@ -26,5 +26,32 @@ describe('cookpadPreviewUrl', () => {
     'not a url',
   ])('Cookpadの公開HTTPSレシピURL以外は拒否する: %s', (url) => {
     expect(cookpadPreviewUrl(url)).toBe('')
+  })
+})
+
+describe('link metadata', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('YouTubeの短縮URLを公式oEmbed URLへ変換する', () => {
+    expect(oEmbedUrl('https://youtu.be/abcdefghijk')).toBe(
+      'https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fyoutu.be%2Fabcdefghijk',
+    )
+  })
+
+  it('oEmbedからタイトルとHTTPS画像を取得する', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          title: '  かんたん料理  ',
+          thumbnail_url: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    await expect(fetchLinkMetadata('https://youtu.be/abcdefghijk')).resolves.toEqual({
+      title: 'かんたん料理',
+      imageUrl: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    })
   })
 })

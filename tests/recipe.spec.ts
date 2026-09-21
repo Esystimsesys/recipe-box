@@ -86,7 +86,7 @@ async function openSettings(page: Page) {
   await expect(page.getByRole('heading', { name: /レシピ帳の設定/ })).toBeVisible()
 }
 
-test('リンクを保存し、レシピと材料の横断検索・作った絞り込み・編集ができる', async ({ page }) => {
+test('リンクを保存し、横断検索・独立した絞り込み・編集ができる', async ({ page }) => {
   await openApp(page)
   await expect(page.getByRole('heading', { name: 'レシピはまだありません' })).toBeVisible()
 
@@ -95,6 +95,10 @@ test('リンクを保存し、レシピと材料の横断検索・作った絞�
   await expect(cooked).toHaveAttribute('aria-pressed', 'false')
   await cooked.click()
   await expect(cooked).toHaveAttribute('aria-pressed', 'true')
+  const favorite = detail.getByRole('button', { name: 'お気に入り', exact: true })
+  await expect(favorite).toHaveAttribute('aria-pressed', 'false')
+  await favorite.click()
+  await expect(favorite).toHaveAttribute('aria-pressed', 'true')
   await closeDialog(page, 'レシピ')
 
   const card = page.locator('.recipe-card').filter({ hasText: '鶏と玉ねぎ' })
@@ -124,8 +128,19 @@ test('リンクを保存し、レシピと材料の横断検索・作った絞�
     'aria-pressed',
     'true',
   )
-  await page.locator('.filter-row').getByRole('button', { name: '作った', exact: true }).click()
-  await expect(page.getByRole('heading', { name: /作ったレシピ/ })).toBeVisible()
+  const filterRow = page.locator('.filter-row')
+  const cookedFilter = filterRow.getByRole('button', { name: '作った', exact: true })
+  const favoriteFilter = filterRow.getByRole('button', { name: 'お気に入り', exact: true })
+  await cookedFilter.click()
+  await favoriteFilter.click()
+  await expect(cookedFilter).toHaveAttribute('aria-pressed', 'true')
+  await expect(favoriteFilter).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('heading', { name: /作った・お気に入り/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /鶏と玉ねぎを開く/ })).toBeVisible()
+  await cookedFilter.click()
+  await expect(cookedFilter).toHaveAttribute('aria-pressed', 'false')
+  await expect(favoriteFilter).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('heading', { name: /お気に入り/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /鶏と玉ねぎを開く/ })).toBeVisible()
   await page.getByRole('button', { name: /鶏と玉ねぎを開く/ }).click()
   const editButton = page
@@ -272,6 +287,34 @@ test('URLだけで保存し、Cookpadのプレビュー画像をカードに表�
   await expect(card.getByRole('img', { name: 'Cookpadのレシピ' })).toHaveAttribute(
     'src',
     'https://og-image.cookpad.com/global/jp/recipe/12345',
+  )
+})
+
+test('YouTubeのURLからタイトルとプレビュー画像を取得する', async ({ page }) => {
+  await page.route('https://www.youtube.com/oembed?**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        title: 'フライパンで作る簡単レシピ',
+        thumbnail_url: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+      }),
+    })
+  })
+  await page.route('https://i.ytimg.com/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG })
+  })
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://youtu.be/abcdefghijk')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  const detail = page.getByRole('dialog', { name: 'レシピ' })
+  await expect(detail.getByRole('heading', { name: 'フライパンで作る簡単レシピ' })).toBeVisible()
+  await expect(detail.getByText('YouTube', { exact: true })).toBeVisible()
+  await closeDialog(page, 'レシピ')
+  await expect(page.getByRole('img', { name: 'フライパンで作る簡単レシピ' })).toHaveAttribute(
+    'src',
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
   )
 })
 

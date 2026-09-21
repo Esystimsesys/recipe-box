@@ -75,6 +75,8 @@ describe('sourceLabel', () => {
     ['https://x.com/a/status/1', 'X'],
     ['https://www.instagram.com/p/1', 'Instagram'],
     ['https://m.tiktok.com/v/1', 'TikTok'],
+    ['https://youtu.be/abcdefghijk', 'YouTube'],
+    ['https://www.youtube.com/watch?v=abcdefghijk', 'YouTube'],
     ['https://cookpad.com/recipe/1', 'Cookpad'],
     ['https://recipes.example.jp/a', 'recipes.example.jp'],
   ])('%s を %s と表示する', (url, expected) => {

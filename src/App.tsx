@@ -38,11 +38,10 @@ import {
   type Photo,
   type Recipe,
 } from './domain'
-import { cookpadPreviewUrl } from './preview'
+import { cookpadPreviewUrl, fetchLinkMetadata } from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 
 type Page = 'recipes' | 'settings'
-type Filter = 'all' | 'cooked' | 'favorites'
 type CardSize = 'compact' | 'comfortable'
 type ModalState =
   | { type: 'recipe'; recipe?: Recipe }
@@ -240,10 +239,14 @@ function RecipeForm({
       if (kind === 'paper' && !title.trim() && !paperPhotos.length)
         throw new Error('レシピ名を入力するか、レシピの画像を追加してください。')
       const now = new Date().toISOString()
+      const metadata =
+        kind === 'link' && (!title.trim() || !initial?.imageUrl)
+          ? await fetchLinkMetadata(cleanUrl)
+          : { title: '', imageUrl: '' }
       const recipe: Recipe = {
         id: initial?.id || newId(),
         kind,
-        title: title.trim(),
+        title: title.trim() || metadata.title,
         url: cleanUrl,
         ingredients: parseIngredients(ingredients),
         note: note.trim(),
@@ -254,7 +257,7 @@ function RecipeForm({
         favorite: initial?.favorite || false,
         wantToCook: initial?.wantToCook || false,
         cooked: initial?.cooked || false,
-        imageUrl: initial?.imageUrl || '',
+        imageUrl: initial?.imageUrl || metadata.imageUrl,
         createdAt: initial?.createdAt || now,
         updatedAt: now,
       }
@@ -489,7 +492,7 @@ function RecipeDetail({
           </a>
         )}
         <div className="detail-head">
-          <p className="eyebrow">
+          <p className="eyebrow detail-source">
             {recipe.kind === 'paper' ? recipe.source || '手動登録' : recipe.source}
           </p>
           <h2 className="detail-title">{titleOf(recipe)}</h2>
@@ -652,7 +655,7 @@ export default function App() {
     narrowScreen.addEventListener('change', closeSidebarOnNarrowScreen)
     return () => narrowScreen.removeEventListener('change', closeSidebarOnNarrowScreen)
   }, [])
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filters, setFilters] = useState({ cooked: false, favorites: false })
   const [query, setQuery] = useState('')
   const [cardSize, setCardSize] = useState<CardSize>(() => {
     try {
@@ -757,10 +760,17 @@ export default function App() {
   const filtered = recipes.filter(
     (recipe) =>
       matchesRecipe(recipe, query) &&
-      (filter === 'all' ||
-        (filter === 'cooked' && recipe.cooked) ||
-        (filter === 'favorites' && recipe.favorite)),
+      (!filters.cooked || recipe.cooked) &&
+      (!filters.favorites || recipe.favorite),
   )
+  const allRecipesSelected = !filters.cooked && !filters.favorites
+  const filteredTitle = allRecipesSelected
+    ? '集めたレシピ'
+    : filters.cooked && filters.favorites
+      ? '作った・お気に入り'
+      : filters.cooked
+        ? '作ったレシピ'
+        : 'お気に入り'
   const selected =
     modal?.type === 'detail' ? recipes.find((recipe) => recipe.id === modal.id) : undefined
   const navItems: { page: Page; label: string; icon: typeof BookOpen }[] = [
@@ -941,31 +951,38 @@ export default function App() {
               {page === 'recipes' && (
                 <>
                   <div className="filter-row" aria-label="レシピの絞り込み">
-                    {(
-                      [
-                        { id: 'all', label: 'すべて', icon: BookOpen },
-                        { id: 'cooked', label: '作った', icon: CookingPot },
-                        { id: 'favorites', label: 'お気に入り', icon: Heart },
-                      ] as const
-                    ).map((item) => (
-                      <button
-                        className={`filter ${filter === item.id ? 'active' : ''}`}
-                        key={item.id}
-                        aria-pressed={filter === item.id}
-                        onClick={() => setFilter(item.id)}
-                      >
-                        <item.icon size={16} />
-                        {item.label}
-                      </button>
-                    ))}
+                    <button
+                      className={`filter ${allRecipesSelected ? 'active' : ''}`}
+                      aria-pressed={allRecipesSelected}
+                      onClick={() => setFilters({ cooked: false, favorites: false })}
+                    >
+                      <BookOpen size={16} aria-hidden="true" />
+                      すべて
+                    </button>
+                    <button
+                      className={`filter ${filters.cooked ? 'active' : ''}`}
+                      aria-pressed={filters.cooked}
+                      onClick={() =>
+                        setFilters((current) => ({ ...current, cooked: !current.cooked }))
+                      }
+                    >
+                      <CookingPot size={16} aria-hidden="true" />
+                      作った
+                    </button>
+                    <button
+                      className={`filter ${filters.favorites ? 'active' : ''}`}
+                      aria-pressed={filters.favorites}
+                      onClick={() =>
+                        setFilters((current) => ({ ...current, favorites: !current.favorites }))
+                      }
+                    >
+                      <Heart size={16} aria-hidden="true" />
+                      お気に入り
+                    </button>
                   </div>
                   <div className="results-heading">
                     <h1>
-                      {filter === 'all'
-                        ? '集めたレシピ'
-                        : filter === 'cooked'
-                          ? '作ったレシピ'
-                          : 'お気に入り'}
+                      {filteredTitle}
                       <span>{filtered.length}</span>
                     </h1>
                   </div>
@@ -1045,7 +1062,7 @@ export default function App() {
                         </article>
                       ))}
                     </div>
-                  ) : recipes.length || query || filter !== 'all' ? (
+                  ) : recipes.length || query || !allRecipesSelected ? (
                     <div className="empty-state">
                       <Search className="empty-icon" />
                       <h2>該当するレシピがありません</h2>
@@ -1054,7 +1071,7 @@ export default function App() {
                         className="secondary"
                         onClick={() => {
                           setQuery('')
-                          setFilter('all')
+                          setFilters({ cooked: false, favorites: false })
                         }}
                       >
                         検索条件をリセット
