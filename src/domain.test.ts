@@ -104,6 +104,13 @@ describe('ingredient search', () => {
     expect(matchesRecipe(recipe, 'カレー', ['玉ねぎ', 'じゃがいも'])).toBe(false)
     expect(matchesRecipe(recipe, 'シチュー', [])).toBe(false)
   })
+
+  it('ひとつの検索語入力でレシピ情報と材料を横断して探す', () => {
+    const recipe = sampleRecipe({ title: 'いつもの炒め物', ingredients: ['鶏むね肉', '玉ねぎ'] })
+    expect(matchesRecipe(recipe, '鶏')).toBe(true)
+    expect(matchesRecipe(recipe, '鶏 タマネギ')).toBe(true)
+    expect(matchesRecipe(recipe, '鶏 じゃがいも')).toBe(false)
+  })
 })
 
 describe('backup validation', () => {

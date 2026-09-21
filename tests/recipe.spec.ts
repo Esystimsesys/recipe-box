@@ -11,7 +11,7 @@ const image = (name: string) => ({ name, mimeType: 'image/png', buffer: PIXEL_PN
 
 async function openApp(page: Page) {
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: /わたしのレシピ帳/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
 }
 
 async function openNewRecipe(page: Page) {
@@ -49,12 +49,10 @@ async function addLinkRecipe(page: Page, title = '鶏と玉ねぎ') {
 
 async function addPaperRecipe(page: Page, title = '祖母の煮物') {
   const dialog = await openNewRecipe(page)
-  await dialog.getByRole('button', { name: '紙のレシピから' }).click()
-  await dialog
-    .getByLabel('紙のレシピ写真')
-    .setInputFiles([image('page-1.png'), image('page-2.png')])
-  await expect(dialog.getByAltText('紙のレシピ写真 1')).toBeVisible()
-  await expect(dialog.getByAltText('紙のレシピ写真 2')).toBeVisible()
+  await dialog.getByRole('button', { name: '手動で登録' }).click()
+  await dialog.getByLabel('レシピの画像').setInputFiles([image('page-1.png'), image('page-2.png')])
+  await expect(dialog.getByAltText('レシピの画像 1')).toBeVisible()
+  await expect(dialog.getByAltText('レシピの画像 2')).toBeVisible()
   await openOptionalFields(dialog)
   await dialog.getByLabel('レシピ名').fill(title)
   await dialog.getByLabel('材料').fill('じゃがいも、にんじん')
@@ -63,8 +61,8 @@ async function addPaperRecipe(page: Page, title = '祖母の煮物') {
 
   const detail = page.getByRole('dialog', { name: 'レシピ' })
   await expect(detail.getByRole('heading', { name: title })).toBeVisible()
-  await expect(detail.getByAltText('レシピ 1ページ目')).toBeVisible()
-  await expect(detail.getByAltText('レシピ 2ページ目')).toBeVisible()
+  await expect(detail.getByAltText('レシピ画像 1')).toBeVisible()
+  await expect(detail.getByAltText('レシピ画像 2')).toBeVisible()
   return detail
 }
 
@@ -88,7 +86,7 @@ async function openSettings(page: Page) {
   await expect(page.getByRole('heading', { name: /レシピ帳の設定/ })).toBeVisible()
 }
 
-test('リンクを保存し、材料の部分一致AND検索・作った絞り込み・編集ができる', async ({ page }) => {
+test('リンクを保存し、レシピと材料の横断検索・作った絞り込み・編集ができる', async ({ page }) => {
   await openApp(page)
   await expect(page.getByRole('heading', { name: 'レシピはまだありません' })).toBeVisible()
 
@@ -99,16 +97,25 @@ test('リンクを保存し、材料の部分一致AND検索・作った絞り�
   await expect(cooked).toHaveAttribute('aria-pressed', 'true')
   await closeDialog(page, 'レシピ')
 
-  await page.getByLabel('レシピを検索').fill('鶏と玉ねぎ')
-  for (const ingredient of ['鶏', '玉ね']) {
-    await page.getByLabel('検索する材料').fill(ingredient)
-    await page.getByRole('button', { name: '材料を検索条件に追加' }).click()
-  }
-  await expect(page.getByText('すべて含む')).toBeVisible()
+  const card = page.locator('.recipe-card').filter({ hasText: '鶏と玉ねぎ' })
+  await expect(card.getByText(/^追加 \d{4}年/u)).toBeVisible()
+  await page.setViewportSize({ width: 768, height: 1024 })
+  expect(
+    await page
+      .locator('.recipe-grid')
+      .evaluate(
+        (grid) => getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length,
+      ),
+  ).toBe(3)
+  await expect(page.getByRole('button', { name: '追加', exact: true })).toHaveCSS(
+    'position',
+    'fixed',
+  )
+
+  await page.getByLabel('レシピを検索').fill('鶏 玉ね')
   await expect(page.getByRole('button', { name: /鶏と玉ねぎを開く/ })).toBeVisible()
 
-  await page.getByLabel('検索する材料').fill('じゃがいも')
-  await page.getByRole('button', { name: '材料を検索条件に追加' }).click()
+  await page.getByLabel('レシピを検索').fill('鶏 じゃがいも')
   await expect(page.getByRole('heading', { name: '該当するレシピがありません' })).toBeVisible()
 
   await page.reload()
@@ -136,11 +143,11 @@ test('リンクを保存し、材料の部分一致AND検索・作った絞り�
   ).toBeVisible()
 })
 
-test('紙レシピの複数画像を保存し、作った状態を付けて削除できる', async ({ page }) => {
+test('手動登録の複数画像を保存し、作った状態を付けて削除できる', async ({ page }) => {
   await openApp(page)
   const detail = await addPaperRecipe(page)
-  await expect(detail.getByAltText('レシピ 1ページ目')).toBeVisible()
-  await expect(detail.getByAltText('レシピ 2ページ目')).toBeVisible()
+  await expect(detail.getByAltText('レシピ画像 1')).toBeVisible()
+  await expect(detail.getByAltText('レシピ画像 2')).toBeVisible()
   const cooked = detail.getByRole('button', { name: '作った', exact: true })
   await cooked.click()
   await expect(cooked).toHaveAttribute('aria-pressed', 'true')
@@ -158,7 +165,7 @@ test('バックアップを別コンテキストへ復元し、重複を上書�
   const sourceContext = await browser.newContext()
   const source = await sourceContext.newPage()
   await source.goto(BASE_URL)
-  await expect(source.getByRole('heading', { name: /わたしのレシピ帳/ })).toBeVisible()
+  await expect(source.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
   await addLinkRecipe(source)
   await closeDialog(source, 'レシピ')
   const paper = await addPaperRecipe(source)
@@ -178,7 +185,7 @@ test('バックアップを別コンテキストへ復元し、重複を上書�
   const restoreContext = await browser.newContext()
   const restored = await restoreContext.newPage()
   await restored.goto(BASE_URL)
-  await expect(restored.getByRole('heading', { name: /わたしのレシピ帳/ })).toBeVisible()
+  await expect(restored.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
   await openSettings(restored)
   await restored.getByLabel('バックアップを選ぶ').setInputFiles({
     name: 'hitosaji-backup.json',
@@ -193,8 +200,8 @@ test('バックアップを別コンテキストへ復元し、重複を上書�
   await navigate(restored, 'レシピ帳')
   await restored.getByRole('button', { name: /祖母の煮物を開く/ }).click()
   const paperDetail = restored.getByRole('dialog', { name: 'レシピ' })
-  await expect(paperDetail.getByAltText('レシピ 1ページ目')).toBeVisible()
-  await expect(paperDetail.getByAltText('レシピ 2ページ目')).toBeVisible()
+  await expect(paperDetail.getByAltText('レシピ画像 1')).toBeVisible()
+  await expect(paperDetail.getByAltText('レシピ画像 2')).toBeVisible()
   await expect(paperDetail.getByRole('button', { name: '作った', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -271,7 +278,7 @@ test('URLだけで保存し、Cookpadのプレビュー画像をカードに表�
 test('サイドバーの開閉状態を再読み込み後も維持する', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
-  await page.getByRole('button', { name: 'メニューを閉じる' }).click()
+  await page.locator('#main-sidebar').getByRole('button', { name: 'メニューを閉じる' }).click()
   await expect(page.locator('.app-shell')).toHaveClass(/\bsidebar-closed\b/u)
   await expect(page.getByRole('button', { name: 'メニューを開く' })).toBeVisible()
 
@@ -280,6 +287,19 @@ test('サイドバーの開閉状態を再読み込み後も維持する', async
   await page.getByRole('button', { name: 'メニューを開く' }).click()
   await expect(page.locator('.app-shell')).not.toHaveClass(/\bsidebar-closed\b/u)
   await expect(page.getByRole('button', { name: 'メニューを閉じる' })).toBeVisible()
+
+  await expect(page.getByRole('link', { name: 'ひとさじ トップへ' })).toHaveAttribute('href', '/')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(page.getByRole('navigation', { name: 'モバイルメニュー' })).toHaveCount(0)
+  await openSettings(page)
+  await expect(page.getByRole('button', { name: '小さめ' })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'メニューを開く' }).click()
+  await page
+    .locator('#main-sidebar')
+    .getByRole('button', { name: /^レシピ帳(?:\s+\d+)?$/u })
+    .click()
+  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
 })
 
 test('危険なURLを保存せず、狭い画面と広い画面で横方向にはみ出さない', async ({ page }) => {
@@ -310,7 +330,7 @@ test('危険なURLを保存せず、狭い画面と広い画面で横方向に�
         return range.getClientRects().length
       })
     expect(labelLines).toBe(1)
-    await expect(page.getByRole('heading', { name: /わたしのレシピ帳/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
     const dimensions = await page.evaluate(() => ({
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
