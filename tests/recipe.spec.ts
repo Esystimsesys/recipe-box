@@ -86,7 +86,7 @@ async function openSettings(page: Page) {
   await expect(page.getByRole('heading', { name: /レシピ帳の設定/ })).toBeVisible()
 }
 
-test('リンクを保存し、レシピと材料の横断検索・作った絞り込み・編集ができる', async ({ page }) => {
+test('リンクを保存し、横断検索・独立した絞り込み・編集ができる', async ({ page }) => {
   await openApp(page)
   await expect(page.getByRole('heading', { name: 'レシピはまだありません' })).toBeVisible()
 
@@ -95,6 +95,10 @@ test('リンクを保存し、レシピと材料の横断検索・作った絞�
   await expect(cooked).toHaveAttribute('aria-pressed', 'false')
   await cooked.click()
   await expect(cooked).toHaveAttribute('aria-pressed', 'true')
+  const favorite = detail.getByRole('button', { name: 'お気に入り', exact: true })
+  await expect(favorite).toHaveAttribute('aria-pressed', 'false')
+  await favorite.click()
+  await expect(favorite).toHaveAttribute('aria-pressed', 'true')
   await closeDialog(page, 'レシピ')
 
   const card = page.locator('.recipe-card').filter({ hasText: '鶏と玉ねぎ' })
@@ -124,8 +128,19 @@ test('リンクを保存し、レシピと材料の横断検索・作った絞�
     'aria-pressed',
     'true',
   )
-  await page.locator('.filter-row').getByRole('button', { name: '作った', exact: true }).click()
-  await expect(page.getByRole('heading', { name: /作ったレシピ/ })).toBeVisible()
+  const filterRow = page.locator('.filter-row')
+  const cookedFilter = filterRow.getByRole('button', { name: '作った', exact: true })
+  const favoriteFilter = filterRow.getByRole('button', { name: 'お気に入り', exact: true })
+  await cookedFilter.click()
+  await favoriteFilter.click()
+  await expect(cookedFilter).toHaveAttribute('aria-pressed', 'true')
+  await expect(favoriteFilter).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('heading', { name: /作った・お気に入り/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /鶏と玉ねぎを開く/ })).toBeVisible()
+  await cookedFilter.click()
+  await expect(cookedFilter).toHaveAttribute('aria-pressed', 'false')
+  await expect(favoriteFilter).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('heading', { name: /お気に入り/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /鶏と玉ねぎを開く/ })).toBeVisible()
   await page.getByRole('button', { name: /鶏と玉ねぎを開く/ }).click()
   const editButton = page
