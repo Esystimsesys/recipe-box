@@ -4,8 +4,6 @@ import {
   Plus,
   Search,
   Heart,
-  Bookmark,
-  Camera,
   Settings,
   ArrowUpRight,
   X,
@@ -20,10 +18,11 @@ import {
   Check,
   ImagePlus,
   Leaf,
-  CalendarDays,
   HardDrive,
   RefreshCw,
   CookingPot,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
 import {
   exportBackup,
@@ -36,16 +35,15 @@ import {
   sourceLabel,
   type Photo,
   type Recipe,
-  type CookLog,
 } from './domain'
+import { cookpadPreviewUrl } from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 
-type Page = 'recipes' | 'records' | 'settings'
-type Filter = 'all' | 'want' | 'favorites' | 'unorganized'
+type Page = 'recipes' | 'settings'
+type Filter = 'all' | 'cooked' | 'favorites'
 type ModalState =
   | { type: 'recipe'; recipe?: Recipe }
   | { type: 'detail'; id: string }
-  | { type: 'log'; recipe: Recipe; log?: CookLog }
   | { type: 'restore'; recipes: Recipe[] }
   | null
 const today = () => {
@@ -56,7 +54,8 @@ const dateLabel = (date: string) =>
   new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' }).format(
     new Date(`${date.slice(0, 10)}T12:00:00`),
   )
-const titleOf = (recipe: Recipe) => recipe.title || 'あとで名前をつけるレシピ'
+const titleOf = (recipe: Recipe) =>
+  recipe.title || (recipe.kind === 'paper' ? '紙のレシピ' : `${recipe.source}のレシピ`)
 const changed = (recipe: Recipe): Recipe => ({
   ...recipe,
   updatedAt: new Date(Math.max(Date.now(), Date.parse(recipe.updatedAt) + 1)).toISOString(),
@@ -213,7 +212,6 @@ function RecipeForm({
   const [source, setSource] = useState(initial?.source || '')
   const [photos, setPhotos] = useState<Photo[]>(initial?.photos || [])
   const [paperPhotos, setPaperPhotos] = useState<Photo[]>(initial?.paperPhotos || [])
-  const [want, setWant] = useState(initial?.wantToCook ?? true)
   const [busy, setBusy] = useState(false)
   const [photoBusy, setPhotoBusy] = useState(false)
   const [paperBusy, setPaperBusy] = useState(false)
@@ -251,7 +249,9 @@ function RecipeForm({
         paperPhotos: kind === 'paper' ? paperPhotos : [],
         logs: initial?.logs || [],
         favorite: initial?.favorite || false,
-        wantToCook: want,
+        wantToCook: initial?.wantToCook || false,
+        cooked: initial?.cooked || false,
+        imageUrl: initial?.imageUrl || '',
         createdAt: initial?.createdAt || now,
         updatedAt: now,
       }
@@ -266,7 +266,7 @@ function RecipeForm({
     }
   }
   return (
-    <Dialog title={initial ? 'レシピを編集' : 'レシピを追加'} onClose={onClose} busy={pending}>
+    <Dialog title={initial ? 'レシピを編集' : '追加'} onClose={onClose} busy={pending}>
       <form className="form-stack" onSubmit={submit}>
         <div className="dialog-body">
           {!initial && (
@@ -291,11 +291,6 @@ function RecipeForm({
               </button>
             </div>
           )}
-          <p className="muted">
-            {kind === 'link'
-              ? 'まずはURLだけでも。名前や材料は、あとから追加できます。'
-              : '本や手書きのレシピを、写真で手元に。'}
-          </p>
           {kind === 'link' ? (
             <div className="field">
               <label htmlFor="recipe-url">
@@ -313,7 +308,7 @@ function RecipeForm({
                 placeholder="https://… または共有した文章"
                 maxLength={4000}
               />
-              <small>作り方は元のサイトを開いて確認します。</small>
+              <small>URLだけでも保存できます。</small>
             </div>
           ) : (
             <PhotoInput
@@ -324,66 +319,61 @@ function RecipeForm({
               onBusy={setPaperBusy}
             />
           )}
-          <div className="field">
-            <label htmlFor="recipe-title">レシピ名</label>
-            <input
-              id="recipe-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="例：鶏肉と玉ねぎの甘酢炒め"
-              maxLength={200}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="recipe-ingredients">材料</label>
-            <textarea
-              id="recipe-ingredients"
-              rows={2}
-              value={ingredients}
-              onChange={(event) => setIngredients(event.target.value)}
-              placeholder="鶏肉、玉ねぎ、ピーマン"
-              maxLength={3000}
-            />
-            <small>「、」や改行で区切って入力。材料で検索できるようになります。</small>
-          </div>
-          {kind === 'paper' && (
+          <details className="optional-fields" open={initial ? true : undefined}>
+            <summary>名前・材料・写真・メモ（任意）</summary>
             <div className="field">
-              <label htmlFor="recipe-source">出典</label>
+              <label htmlFor="recipe-title">レシピ名</label>
               <input
-                id="recipe-source"
-                value={source}
-                onChange={(event) => setSource(event.target.value)}
-                placeholder="本の名前、ページなど"
+                id="recipe-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="例：鶏肉と玉ねぎの甘酢炒め"
                 maxLength={200}
               />
             </div>
-          )}
-          <PhotoInput
-            label="料理の写真"
-            kind="dish"
-            photos={photos}
-            onChange={setPhotos}
-            onBusy={setPhotoBusy}
-          />
-          <div className="field">
-            <label htmlFor="recipe-note">自分用メモ</label>
-            <textarea
-              id="recipe-note"
-              rows={3}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="おいしく作るコツ、試してみたいアレンジなど"
-              maxLength={10000}
+            <div className="field">
+              <label htmlFor="recipe-ingredients">材料</label>
+              <textarea
+                id="recipe-ingredients"
+                rows={2}
+                value={ingredients}
+                onChange={(event) => setIngredients(event.target.value)}
+                placeholder="鶏肉、玉ねぎ、ピーマン"
+                maxLength={3000}
+              />
+              <small>「、」や改行で区切って入力。材料で検索できるようになります。</small>
+            </div>
+            {kind === 'paper' && (
+              <div className="field">
+                <label htmlFor="recipe-source">出典</label>
+                <input
+                  id="recipe-source"
+                  value={source}
+                  onChange={(event) => setSource(event.target.value)}
+                  placeholder="本の名前、ページなど"
+                  maxLength={200}
+                />
+              </div>
+            )}
+            <PhotoInput
+              label="料理の写真"
+              kind="dish"
+              photos={photos}
+              onChange={setPhotos}
+              onBusy={setPhotoBusy}
             />
-          </div>
-          <label className="check-field">
-            <input
-              type="checkbox"
-              checked={want}
-              onChange={(event) => setWant(event.target.checked)}
-            />
-            作りたいリストに入れる
-          </label>
+            <div className="field">
+              <label htmlFor="recipe-note">自分用メモ</label>
+              <textarea
+                id="recipe-note"
+                rows={3}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="おいしく作るコツ、試してみたいアレンジなど"
+                maxLength={10000}
+              />
+            </div>
+          </details>
           {error && (
             <p className="error" role="alert">
               {error}
@@ -410,172 +400,25 @@ function RecipeForm({
   )
 }
 
-function LogForm({
-  recipe,
-  initial,
-  onSave,
-  onClose,
-}: {
-  recipe: Recipe
-  initial?: CookLog
-  onSave: (recipe: Recipe, previous?: string) => Promise<void>
-  onClose: () => void
-}) {
-  const [date, setDate] = useState(initial?.date || today())
-  const [note, setNote] = useState(initial?.note || '')
-  const [photos, setPhotos] = useState<Photo[]>(initial?.photos || [])
-  const [useCover, setUseCover] = useState(!recipe.photos.length)
-  const [busy, setBusy] = useState(false)
-  const [photoBusy, setPhotoBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setError('')
-    try {
-      const log: CookLog = { id: initial?.id || newId(), date, note: note.trim(), photos }
-      await onSave(
-        changed({
-          ...recipe,
-          logs: initial
-            ? recipe.logs.map((item) => (item.id === initial.id ? log : item))
-            : [...recipe.logs, log],
-          photos:
-            useCover && photos.length
-              ? [photos[0], ...recipe.photos.filter((item) => item.id !== photos[0].id)].slice(
-                  0,
-                  12,
-                )
-              : recipe.photos,
-        }),
-        recipe.updatedAt,
-      )
-    } catch (error) {
-      setError(friendlyError(error))
-    } finally {
-      setBusy(false)
-    }
-  }
+function RecipeImage({ recipe }: { recipe: Recipe }) {
+  const src = recipe.photos[0]?.dataUrl || recipe.imageUrl || cookpadPreviewUrl(recipe.url)
+  const [failed, setFailed] = useState('')
+  if (!src || failed === src)
+    return (
+      <div className={`photo-placeholder ${recipe.kind === 'paper' ? 'paper-placeholder' : ''}`}>
+        <span className="placeholder-icon">
+          <Utensils size={36} strokeWidth={1.2} />
+        </span>
+      </div>
+    )
   return (
-    <Dialog
-      title={initial ? '作った記録を編集' : '作った記録を残す'}
-      onClose={onClose}
-      busy={busy || photoBusy}
-    >
-      <form onSubmit={submit} className="form-stack">
-        <div className="dialog-body">
-          <p className="record-recipe-name">{titleOf(recipe)}</p>
-          <div className="field">
-            <label htmlFor="cook-date">作った日</label>
-            <input
-              id="cook-date"
-              type="date"
-              required
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-            />
-          </div>
-          <PhotoInput
-            label="作った料理の写真"
-            kind="dish"
-            photos={photos}
-            onChange={setPhotos}
-            onBusy={setPhotoBusy}
-          />
-          {!!photos.length && (
-            <label className="check-field">
-              <input
-                type="checkbox"
-                checked={useCover}
-                onChange={(event) => setUseCover(event.target.checked)}
-              />
-              この写真をレシピの表紙にも使う
-            </label>
-          )}
-          <div className="field">
-            <label htmlFor="cook-note">感想・アレンジ</label>
-            <textarea
-              id="cook-note"
-              rows={4}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="少し甘めにしたら、おいしくできた。"
-              maxLength={10000}
-            />
-          </div>
-          {initial && (
-            <div className="confirm-panel">
-              {confirmDelete ? (
-                <>
-                  <p>この日の記録を削除します。表紙に使った写真は残ります。</p>
-                  <div className="button-row">
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={busy || photoBusy}
-                      onClick={async () => {
-                        setBusy(true)
-                        try {
-                          await onSave(
-                            changed({
-                              ...recipe,
-                              logs: recipe.logs.filter((item) => item.id !== initial.id),
-                            }),
-                            recipe.updatedAt,
-                          )
-                        } catch (error) {
-                          setError(friendlyError(error))
-                        } finally {
-                          setBusy(false)
-                        }
-                      }}
-                    >
-                      記録を削除する
-                    </button>
-                    <button
-                      className="text-button"
-                      type="button"
-                      onClick={() => setConfirmDelete(false)}
-                    >
-                      戻る
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="text-button danger-text"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <Trash2 size={16} />
-                  この記録を削除
-                </button>
-              )}
-            </div>
-          )}
-          {error && (
-            <p role="alert" className="error">
-              {error}
-            </p>
-          )}
-        </div>
-        <footer className="dialog-footer">
-          <button
-            className="text-button"
-            type="button"
-            disabled={busy || photoBusy}
-            onClick={onClose}
-          >
-            キャンセル
-          </button>
-          <button className="primary" disabled={busy || photoBusy}>
-            <Check size={18} />
-            {busy || photoBusy ? '準備中…' : '記録を保存'}
-          </button>
-        </footer>
-      </form>
-    </Dialog>
+    <img
+      src={src}
+      loading="lazy"
+      className={!recipe.photos.length ? 'source-preview' : undefined}
+      alt={titleOf(recipe)}
+      onError={() => setFailed(src)}
+    />
   )
 }
 
@@ -583,7 +426,6 @@ function RecipeDetail({
   recipe,
   onClose,
   onEdit,
-  onLog,
   onDelete,
   onToggle,
   onPhoto,
@@ -591,9 +433,8 @@ function RecipeDetail({
   recipe: Recipe
   onClose: () => void
   onEdit: () => void
-  onLog: (log?: CookLog) => void
   onDelete: () => Promise<void>
-  onToggle: (field: 'favorite' | 'wantToCook') => Promise<void>
+  onToggle: (field: 'favorite' | 'cooked') => Promise<void>
   onPhoto: (photo: Photo) => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -622,12 +463,21 @@ function RecipeDetail({
             <img src={recipe.photos[0].dataUrl} alt={titleOf(recipe)} />
           </button>
         )}
+        {!recipe.photos.length && (recipe.imageUrl || cookpadPreviewUrl(recipe.url)) && (
+          <a
+            className="detail-cover"
+            href={recipe.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="元のレシピを画像から開く"
+          >
+            <RecipeImage recipe={recipe} />
+          </a>
+        )}
         <div className="detail-head">
           <p className="eyebrow">{recipe.kind === 'paper' ? '紙のレシピ' : recipe.source}</p>
           <h2 className="detail-title">{titleOf(recipe)}</h2>
-          <p className="detail-meta">
-            {recipe.logs.length ? `${recipe.logs.length}回作りました` : 'まだ作っていないレシピ'}
-          </p>
+          <p className="detail-meta">{recipe.cooked ? '作った' : ''}</p>
         </div>
         {recipe.kind === 'link' && (
           <a
@@ -642,13 +492,13 @@ function RecipeDetail({
         )}
         <div className="button-row detail-actions">
           <button
-            className={`secondary ${recipe.wantToCook ? 'is-on' : ''}`}
+            className={`secondary ${recipe.cooked ? 'is-on' : ''}`}
             disabled={busy}
-            aria-pressed={recipe.wantToCook}
-            onClick={() => action(() => onToggle('wantToCook'))}
+            aria-pressed={recipe.cooked}
+            onClick={() => action(() => onToggle('cooked'))}
           >
-            <Bookmark size={17} />
-            作りたい
+            <CookingPot size={17} />
+            作った
           </button>
           <button
             className={`secondary ${recipe.favorite ? 'is-on' : ''}`}
@@ -659,25 +509,21 @@ function RecipeDetail({
             <Heart size={17} />
             お気に入り
           </button>
-          <button className="text-button" onClick={onEdit} disabled={busy}>
+          <button className="secondary" onClick={onEdit} disabled={busy}>
             <Pencil size={17} />
             編集
           </button>
         </div>
-        <section className="detail-section">
-          <h3>材料</h3>
-          {recipe.ingredients.length ? (
+        {!!recipe.ingredients.length && (
+          <section className="detail-section">
+            <h3>材料</h3>
             <div className="ingredient-tags">
               {recipe.ingredients.map((ingredient) => (
                 <span key={ingredient}>{ingredient}</span>
               ))}
             </div>
-          ) : (
-            <p className="muted">
-              材料はまだ登録されていません。編集から追加すると、材料で探せます。
-            </p>
-          )}
-        </section>
+          </section>
+        )}
         {recipe.note && (
           <section className="detail-section">
             <h3>自分用メモ</h3>
@@ -719,58 +565,10 @@ function RecipeDetail({
             <p className="fineprint">写真を押すと拡大できます。</p>
           </section>
         )}
-        <section className="detail-section">
-          <div className="section-heading">
-            <h3>
-              作った記録 <span>{recipe.logs.length}</span>
-            </h3>
-            <button className="secondary" disabled={busy} onClick={() => onLog()}>
-              <Plus size={17} />
-              記録する
-            </button>
-          </div>
-          {!recipe.logs.length ? (
-            <p className="muted">作った日の写真や感想を、ここに残していきましょう。</p>
-          ) : (
-            <div className="log-list">
-              {[...recipe.logs]
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .map((log) => (
-                  <article className="log-item" key={log.id}>
-                    <div className="section-heading">
-                      <h4>{dateLabel(log.date)}</h4>
-                      <button
-                        className="icon-button"
-                        aria-label={`${log.date}の記録を編集`}
-                        onClick={() => onLog(log)}
-                      >
-                        <Pencil size={17} />
-                      </button>
-                    </div>
-                    <div className="log-images">
-                      {log.photos.map((photo, index) => (
-                        <button
-                          key={photo.id}
-                          onClick={() => onPhoto(photo)}
-                          aria-label={`記録写真 ${index + 1}を拡大`}
-                        >
-                          <img src={photo.dataUrl} alt={`作った料理 ${index + 1}`} />
-                        </button>
-                      ))}
-                    </div>
-                    {log.note && <p className="preserve-lines">{log.note}</p>}
-                  </article>
-                ))}
-            </div>
-          )}
-        </section>
         <div className="confirm-panel">
           {confirmDelete ? (
             <>
-              <p>
-                このレシピと、ひも付く{recipe.logs.length}
-                件の調理記録・写真を削除します。この操作は取り消せません。
-              </p>
+              <p>このレシピと関連する写真を削除します。この操作は取り消せません。</p>
               <div className="button-row">
                 <button className="danger" disabled={busy} onClick={() => action(onDelete)}>
                   レシピを削除する
@@ -810,6 +608,22 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [page, setPage] = useState<Page>('recipes')
+  const [sidebarClosed, setSidebarClosed] = useState(() => {
+    try {
+      return localStorage.getItem('hitosaji-sidebar-closed') === 'true'
+    } catch {
+      return false
+    }
+  })
+  function toggleSidebar() {
+    setSidebarClosed((value) => {
+      const next = !value
+      try {
+        localStorage.setItem('hitosaji-sidebar-closed', String(next))
+      } catch {}
+      return next
+    })
+  }
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [ingredientInput, setIngredientInput] = useState('')
@@ -834,7 +648,18 @@ export default function App() {
     }
   }
   useEffect(() => {
-    void refresh()
+    void (async () => {
+      try {
+        if (import.meta.env.DEV) {
+          const { seedDemoRecipes } = await import('./demo')
+          await seedDemoRecipes()
+        }
+        await refresh()
+      } catch (error) {
+        setLoadError(friendlyError(error))
+        setLoading(false)
+      }
+    })()
     const onFocus = () => {
       void refresh()
     }
@@ -884,7 +709,7 @@ export default function App() {
     await afterWrite('保存しました')
     setModal({ type: 'detail', id: recipe.id })
   }
-  async function toggle(recipe: Recipe, field: 'favorite' | 'wantToCook') {
+  async function toggle(recipe: Recipe, field: 'favorite' | 'cooked') {
     await saveRecipe(changed({ ...recipe, [field]: !recipe[field] }), recipe.updatedAt)
     await afterWrite('変更しました')
   }
@@ -898,19 +723,14 @@ export default function App() {
     (recipe) =>
       matchesRecipe(recipe, query, ingredients) &&
       (filter === 'all' ||
-        (filter === 'want' && recipe.wantToCook) ||
-        (filter === 'favorites' && recipe.favorite) ||
-        (filter === 'unorganized' && (!recipe.title || !recipe.ingredients.length))),
+        (filter === 'cooked' && recipe.cooked) ||
+        (filter === 'favorites' && recipe.favorite)),
   )
-  const logs = recipes
-    .flatMap((recipe) => recipe.logs.map((log) => ({ recipe, log })))
-    .sort((a, b) => b.log.date.localeCompare(a.log.date))
   const allIngredients = [...new Set(recipes.flatMap((recipe) => recipe.ingredients))].sort()
   const selected =
     modal?.type === 'detail' ? recipes.find((recipe) => recipe.id === modal.id) : undefined
   const navItems: { page: Page; label: string; icon: typeof BookOpen }[] = [
     { page: 'recipes', label: 'レシピ帳', icon: BookOpen },
-    { page: 'records', label: '作った記録', icon: Camera },
     { page: 'settings', label: '設定', icon: Settings },
   ]
   function navigation() {
@@ -957,11 +777,11 @@ export default function App() {
     }
   }
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarClosed ? 'sidebar-closed' : ''}`}>
       <a className="skip-link" href="#main-content">
         本文へ移動
       </a>
-      <aside className="sidebar">
+      <aside className="sidebar" id="main-sidebar">
         <a className="brand" href={import.meta.env.BASE_URL} aria-label="ひとさじ ホーム">
           <span className="brand-mark">
             <CookingPot size={25} />
@@ -981,12 +801,19 @@ export default function App() {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <span className="eyebrow">ひとさじ</span>
+          <div className="topbar-brand">
+            <button
+              className="icon-button sidebar-toggle"
+              aria-label={sidebarClosed ? 'メニューを開く' : 'メニューを閉じる'}
+              aria-expanded={!sidebarClosed}
+              aria-controls="main-sidebar"
+              onClick={toggleSidebar}
+            >
+              {sidebarClosed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+            </button>
+            <span className="eyebrow">ひとさじ</span>
+          </div>
           <div className="topbar-actions">
-            <span className="local-indicator">
-              <span />
-              自分だけのレシピ帳
-            </span>
             <button
               className="icon-button"
               aria-label="設定を開く"
@@ -1034,7 +861,7 @@ export default function App() {
                     </div>
                     <button className="primary" onClick={() => setModal({ type: 'recipe' })}>
                       <Plus size={19} />
-                      レシピを追加
+                      追加
                     </button>
                   </div>
                   <section className="search-panel" aria-label="レシピ検索">
@@ -1104,9 +931,8 @@ export default function App() {
                     {(
                       [
                         { id: 'all', label: 'すべて', icon: BookOpen },
-                        { id: 'want', label: '作りたい', icon: Bookmark },
+                        { id: 'cooked', label: '作った', icon: CookingPot },
                         { id: 'favorites', label: 'お気に入り', icon: Heart },
-                        { id: 'unorganized', label: 'あとで整理', icon: Pencil },
                       ] as const
                     ).map((item) => (
                       <button
@@ -1124,11 +950,9 @@ export default function App() {
                     <h2>
                       {filter === 'all'
                         ? '集めたレシピ'
-                        : filter === 'want'
-                          ? '作りたいレシピ'
-                          : filter === 'favorites'
-                            ? 'お気に入り'
-                            : 'あとで整理'}
+                        : filter === 'cooked'
+                          ? '作ったレシピ'
+                          : 'お気に入り'}
                       <span>{filtered.length}</span>
                     </h2>
                     <span className="fineprint">新しく追加した順</span>
@@ -1143,21 +967,7 @@ export default function App() {
                             aria-label={`${titleOf(recipe)}を開く`}
                           >
                             <div className="card-image">
-                              {recipe.photos[0] ? (
-                                <img
-                                  src={recipe.photos[0].dataUrl}
-                                  loading="lazy"
-                                  alt={titleOf(recipe)}
-                                />
-                              ) : (
-                                <div
-                                  className={`photo-placeholder ${recipe.kind === 'paper' ? 'paper-placeholder' : ''}`}
-                                >
-                                  <span className="placeholder-icon">
-                                    <Utensils size={36} strokeWidth={1.2} />
-                                  </span>
-                                </div>
-                              )}
+                              <RecipeImage recipe={recipe} />
                               <span className="source-badge">
                                 {recipe.kind === 'paper' ? (
                                   <>
@@ -1184,34 +994,24 @@ export default function App() {
                                       <span>+{recipe.ingredients.length - 3}</span>
                                     )}
                                   </>
-                                ) : (
-                                  <span className="muted-tag">材料をあとで登録</span>
-                                )}
+                                ) : null}
                               </div>
                             </div>
                           </button>
                           <div className="card-actions">
-                            <span className="card-meta">
-                              <CookingPot size={15} />
-                              {recipe.logs.length
-                                ? `${recipe.logs.length}回作った`
-                                : 'まだ作っていません'}
-                            </span>
                             <div>
                               <button
-                                className={`icon-button ${recipe.wantToCook ? 'is-on' : ''}`}
-                                aria-label={`${titleOf(recipe)}を作りたい`}
-                                aria-pressed={recipe.wantToCook}
+                                className={`icon-button ${recipe.cooked ? 'is-on' : ''}`}
+                                aria-label={`${titleOf(recipe)}を作った`}
+                                title="作った"
+                                aria-pressed={recipe.cooked}
                                 onClick={() => {
-                                  void toggle(recipe, 'wantToCook').catch((error) =>
+                                  void toggle(recipe, 'cooked').catch((error) =>
                                     setToast(friendlyError(error)),
                                   )
                                 }}
                               >
-                                <Bookmark
-                                  size={18}
-                                  fill={recipe.wantToCook ? 'currentColor' : 'none'}
-                                />
+                                <CookingPot size={18} />
                               </button>
                               <button
                                 className={`icon-button ${recipe.favorite ? 'is-on' : ''}`}
@@ -1256,59 +1056,6 @@ export default function App() {
                   )}
                 </>
               )}
-              {page === 'records' && (
-                <>
-                  <div className="page-heading">
-                    <div>
-                      <h1>
-                        作った記録<span className="heading-dot">.</span>
-                      </h1>
-                    </div>
-                    <span className="record-total">{logs.length}回の記録</span>
-                  </div>
-                  {logs.length ? (
-                    <div className="records-grid">
-                      {logs.map(({ recipe, log }) => (
-                        <button
-                          className="record-card"
-                          key={`${recipe.id}-${log.id}`}
-                          onClick={() => setModal({ type: 'log', recipe, log })}
-                        >
-                          {log.photos[0] ? (
-                            <img src={log.photos[0].dataUrl} loading="lazy" alt={titleOf(recipe)} />
-                          ) : (
-                            <div className="record-placeholder">
-                              <CookingPot size={36} strokeWidth={1.2} />
-                            </div>
-                          )}
-                          <div className="record-body">
-                            <span className="record-date">
-                              <CalendarDays size={14} />
-                              {dateLabel(log.date)}
-                            </span>
-                            <h2>{titleOf(recipe)}</h2>
-                            <p>{log.note || 'この日に作りました。'}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="empty-state">
-                      <Camera className="empty-icon" />
-                      <h2>最初の「作った」を残そう</h2>
-                      <p>
-                        レシピを開いて「記録する」から、
-                        <br />
-                        写真と感想を残せます。
-                      </p>
-                      <button className="secondary" onClick={() => setPage('recipes')}>
-                        レシピ帳を開く
-                        <ChevronRight size={17} />
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
               {page === 'settings' && (
                 <>
                   <div className="page-heading">
@@ -1333,7 +1080,7 @@ export default function App() {
                           <strong>{recipes.length}</strong> レシピ
                         </span>
                         <span>
-                          <strong>{logs.length}</strong> 調理記録
+                          <strong>{recipes.filter((recipe) => recipe.cooked).length}</strong> 作った
                         </span>
                         {storage?.usage !== undefined && (
                           <span>使用量 約{(storage.usage / 1024 / 1024).toFixed(1)} MB</span>
@@ -1346,7 +1093,7 @@ export default function App() {
                     <section className="settings-card">
                       <Download className="setting-icon" />
                       <h2>バックアップ</h2>
-                      <p>レシピ・写真・調理記録を、ひとつのファイルにまとめて書き出します。</p>
+                      <p>レシピと写真を、ひとつのファイルに書き出します。</p>
                       <button className="primary" disabled={busy} onClick={backup}>
                         <Download size={18} />
                         バックアップを書き出す
@@ -1450,7 +1197,6 @@ export default function App() {
           recipe={selected}
           onClose={() => setModal(null)}
           onEdit={() => setModal({ type: 'recipe', recipe: selected })}
-          onLog={(log) => setModal({ type: 'log', recipe: selected, log })}
           onDelete={async () => {
             await removeRecipe(selected)
             await afterWrite('レシピを削除しました')
@@ -1467,15 +1213,6 @@ export default function App() {
           </div>
         </Dialog>
       )}
-      {modal?.type === 'log' && (
-        <LogForm
-          key={modal.log?.id || modal.recipe.id}
-          recipe={modal.recipe}
-          initial={modal.log}
-          onClose={() => setModal({ type: 'detail', id: modal.recipe.id })}
-          onSave={save}
-        />
-      )}
       {modal?.type === 'restore' && (
         <Dialog
           title="バックアップを取り込む"
@@ -1488,7 +1225,7 @@ export default function App() {
           <div className="dialog-body">
             <p>{modal.recipes.length}件のレシピが入っています。</p>
             <p>
-              現在の記録は残し、未登録のレシピだけを写真・調理記録と一緒に追加します。同じIDのレシピは上書きしません。
+              現在の記録は残し、未登録のレシピだけを写真と一緒に追加します。同じIDのレシピは上書きしません。
             </p>
             {settingsError && (
               <p className="error" role="alert">

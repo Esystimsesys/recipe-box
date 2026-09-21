@@ -9,13 +9,32 @@ export default defineConfig(({ mode }) => {
     base: process.env.BASE_PATH || '/',
     plugins: [
       react(),
+      {
+        name: 'clear-preview-worker-in-development',
+        apply: 'serve',
+        configureServer(server) {
+          // A previous production preview at this origin must not hide the dev app.
+          server.middlewares.use('/sw.js', (_request, response) => {
+            response.setHeader('Content-Type', 'application/javascript')
+            response.setHeader('Cache-Control', 'no-store')
+            response.end(`
+              self.addEventListener('install', () => self.skipWaiting());
+              self.addEventListener('activate', event => event.waitUntil((async () => {
+                await self.registration.unregister();
+                const windows = await self.clients.matchAll({ type: 'window' });
+                await Promise.all(windows.map(client => client.navigate(client.url)));
+              })()));
+            `)
+          })
+        },
+      },
       VitePWA({
         registerType: 'prompt',
         includeAssets: ['icon.svg', 'apple-touch-icon.png'],
         manifest: {
           name: 'ひとさじ — わたしのレシピ帳',
           short_name: 'ひとさじ',
-          description: 'お気に入りのレシピと、作った日の記録。',
+          description: 'お気に入りのレシピと、料理の写真。',
           lang: 'ja',
           theme_color: '#faf8f3',
           background_color: '#faf8f3',
