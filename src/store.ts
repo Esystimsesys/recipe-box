@@ -1,5 +1,5 @@
 import { openDB, type DBSchema } from 'idb'
-import { parseBackup, exportBackup, type Recipe } from './domain'
+import { exportBackup, normalizeStoredRecipe, parseBackup, type Recipe } from './domain'
 
 interface RecipeDB extends DBSchema {
   recipes: { key: string; value: Recipe }
@@ -20,7 +20,9 @@ const database = () =>
 export async function listRecipes(): Promise<Recipe[]> {
   const db = await database()
   try {
-    return (await db.getAll('recipes')).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    return (await db.getAll('recipes'))
+      .map((recipe) => normalizeStoredRecipe(recipe))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   } finally {
     db.close()
   }
@@ -68,11 +70,12 @@ export async function removeRecipe(recipe: Recipe) {
 
 // Restore only missing records in one transaction. An import never overwrites existing work.
 export async function restoreRecipes(recipes: Recipe[]) {
+  const validated = parseBackup(exportBackup(recipes))
   const db = await database()
   try {
     const tx = db.transaction('recipes', 'readwrite')
     let added = 0
-    for (const recipe of recipes) {
+    for (const recipe of validated) {
       if (!(await tx.store.get(recipe.id))) {
         await tx.store.add(recipe)
         added++

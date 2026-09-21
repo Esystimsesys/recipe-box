@@ -24,13 +24,15 @@ export type Recipe = {
   logs: CookLog[]
   favorite: boolean
   wantToCook: boolean
+  cooked: boolean
+  imageUrl?: string
   createdAt: string
   updatedAt: string
 }
 
 export type RecipeBackup = {
   format: 'recipe-box'
-  version: 1
+  version: 2
   exportedAt: string
   recipes: Recipe[]
 }
@@ -158,11 +160,13 @@ export function matchesRecipe(recipe: Recipe, query: string, ingredients: string
     )
 
   if (!textMatches) return false
-  const recipeIngredients = new Set(recipe.ingredients.map(normalizeIngredient))
+  const recipeIngredients = recipe.ingredients.map(normalizeIngredient)
   return ingredients
     .map(normalizeIngredient)
     .filter(Boolean)
-    .every((ingredient) => recipeIngredients.has(ingredient))
+    .every((ingredient) =>
+      recipeIngredients.some((recipeIngredient) => recipeIngredient.includes(ingredient)),
+    )
 }
 
 type DecodedImage = {
@@ -301,6 +305,23 @@ function readBoolean(value: unknown, path: string): boolean {
   return value
 }
 
+function readImageUrl(value: unknown, path: string): string {
+  if (value === undefined || value === '') return ''
+  const raw = readString(value, path, LIMITS.url, false).trim()
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw new Error(`${path} は正しい画像URLではありません。`)
+  }
+  if (parsed.protocol !== 'https:') throw new Error(`${path} はHTTPSのURLである必要があります。`)
+  if (parsed.username || parsed.password) {
+    throw new Error(`${path} にユーザー名やパスワードは指定できません。`)
+  }
+  if (!parsed.hostname) throw new Error(`${path} にホスト名がありません。`)
+  return parsed.toString()
+}
+
 function readIsoDate(value: unknown, path: string): string {
   const raw = readString(value, path, 64, false)
   const parts =
@@ -392,7 +413,7 @@ function readLog(value: unknown, path: string): CookLog {
   }
 }
 
-function readRecipe(value: unknown, path: string): Recipe {
+function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
   if (!isRecord(value)) throw new Error(`${path} はレシピである必要があります。`)
   assertKeys(
     value,
@@ -409,6 +430,7 @@ function readRecipe(value: unknown, path: string): Recipe {
       'logs',
       'favorite',
       'wantToCook',
+      ...(version === 2 ? ['cooked', 'imageUrl'] : []),
       'createdAt',
       'updatedAt',
     ],
@@ -453,6 +475,8 @@ function readRecipe(value: unknown, path: string): Recipe {
     logs,
     favorite: readBoolean(value.favorite, `${path}.favorite`),
     wantToCook: readBoolean(value.wantToCook, `${path}.wantToCook`),
+    cooked: version === 1 ? logs.length > 0 : readBoolean(value.cooked, `${path}.cooked`),
+    imageUrl: version === 1 ? '' : readImageUrl(value.imageUrl, `${path}.imageUrl`),
     createdAt: readIsoDate(value.createdAt, `${path}.createdAt`),
     updatedAt: readIsoDate(value.updatedAt, `${path}.updatedAt`),
   }
@@ -461,7 +485,7 @@ function readRecipe(value: unknown, path: string): Recipe {
 export function parseBackup(input: unknown): Recipe[] {
   if (!isRecord(input)) throw new Error('バックアップの形式が正しくありません。')
   assertKeys(input, ['format', 'version', 'exportedAt', 'recipes'], 'backup')
-  if (input.format !== 'recipe-box' || input.version !== 1) {
+  if (input.format !== 'recipe-box' || (input.version !== 1 && input.version !== 2)) {
     throw new Error('対応していないバックアップ形式です。')
   }
   if ('exportedAt' in input) readIsoDate(input.exportedAt, 'backup.exportedAt')
@@ -470,7 +494,7 @@ export function parseBackup(input: unknown): Recipe[] {
     throw new Error(`レシピは${MAX_RECIPES}件まで取り込めます。`)
 
   const recipes = input.recipes.map((recipe, index) =>
-    readRecipe(recipe, `backup.recipes[${index}]`),
+    readRecipe(recipe, `backup.recipes[${index}]`, input.version as 1 | 2),
   )
   assertUniqueIds(recipes, 'backup.recipes')
   return recipes
@@ -479,8 +503,18 @@ export function parseBackup(input: unknown): Recipe[] {
 export function exportBackup(recipes: Recipe[]): RecipeBackup {
   return {
     format: 'recipe-box',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    recipes,
+    recipes: recipes.map((recipe) => ({ ...recipe, imageUrl: recipe.imageUrl ?? '' })),
   }
+}
+
+/** Validate one record read from IndexedDB and fill fields added after v1. */
+export function normalizeStoredRecipe(input: unknown): Recipe {
+  if (!isRecord(input)) throw new Error('保存されたレシピの形式が正しくありません。')
+  const version = 'cooked' in input ? 2 : 1
+  const recipe = parseBackup({ format: 'recipe-box', version, recipes: [input] })[0]
+  // Optimistic concurrency compares this exact stored token. Migration must not rewrite it.
+  recipe.updatedAt = readString(input.updatedAt, 'recipe.updatedAt', 64, false)
+  return recipe
 }

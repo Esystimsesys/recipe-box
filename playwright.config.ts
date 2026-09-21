@@ -7,7 +7,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 8_000 },
   use: {
-    baseURL: 'http://localhost:5188',
+    baseURL: 'http://localhost:5190',
     viewport: { width: 1280, height: 900 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -17,8 +17,8 @@ export default defineConfig({
     { name: 'webkit', use: { browserName: 'webkit' } },
   ],
   webServer: {
-    command: 'npm run preview',
-    url: 'http://localhost:5188',
-    reuseExistingServer: !process.env.CI,
+    command: 'npm run preview -- --port 5190',
+    url: 'http://localhost:5190',
+    reuseExistingServer: false,
   },
 })
