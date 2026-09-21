@@ -129,6 +129,8 @@ export function sourceLabel(url: string): string {
     return 'X'
   if (hostname === 'instagram.com' || hostname.endsWith('.instagram.com')) return 'Instagram'
   if (hostname === 'tiktok.com' || hostname.endsWith('.tiktok.com')) return 'TikTok'
+  if (hostname === 'youtu.be' || hostname === 'youtube.com' || hostname.endsWith('.youtube.com'))
+    return 'YouTube'
   if (hostname === 'cookpad.com' || hostname.endsWith('.cookpad.com')) return 'Cookpad'
   return hostname
 }

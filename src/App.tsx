@@ -38,7 +38,7 @@ import {
   type Photo,
   type Recipe,
 } from './domain'
-import { cookpadPreviewUrl } from './preview'
+import { cookpadPreviewUrl, fetchLinkMetadata } from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 
 type Page = 'recipes' | 'settings'
@@ -239,10 +239,14 @@ function RecipeForm({
       if (kind === 'paper' && !title.trim() && !paperPhotos.length)
         throw new Error('レシピ名を入力するか、レシピの画像を追加してください。')
       const now = new Date().toISOString()
+      const metadata =
+        kind === 'link' && (!title.trim() || !initial?.imageUrl)
+          ? await fetchLinkMetadata(cleanUrl)
+          : { title: '', imageUrl: '' }
       const recipe: Recipe = {
         id: initial?.id || newId(),
         kind,
-        title: title.trim(),
+        title: title.trim() || metadata.title,
         url: cleanUrl,
         ingredients: parseIngredients(ingredients),
         note: note.trim(),
@@ -253,7 +257,7 @@ function RecipeForm({
         favorite: initial?.favorite || false,
         wantToCook: initial?.wantToCook || false,
         cooked: initial?.cooked || false,
-        imageUrl: initial?.imageUrl || '',
+        imageUrl: initial?.imageUrl || metadata.imageUrl,
         createdAt: initial?.createdAt || now,
         updatedAt: now,
       }

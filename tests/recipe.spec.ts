@@ -290,6 +290,34 @@ test('URLだけで保存し、Cookpadのプレビュー画像をカードに表�
   )
 })
 
+test('YouTubeのURLからタイトルとプレビュー画像を取得する', async ({ page }) => {
+  await page.route('https://www.youtube.com/oembed?**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        title: 'フライパンで作る簡単レシピ',
+        thumbnail_url: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+      }),
+    })
+  })
+  await page.route('https://i.ytimg.com/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG })
+  })
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://youtu.be/abcdefghijk')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  const detail = page.getByRole('dialog', { name: 'レシピ' })
+  await expect(detail.getByRole('heading', { name: 'フライパンで作る簡単レシピ' })).toBeVisible()
+  await expect(detail.getByText('YouTube', { exact: true })).toBeVisible()
+  await closeDialog(page, 'レシピ')
+  await expect(page.getByRole('img', { name: 'フライパンで作る簡単レシピ' })).toHaveAttribute(
+    'src',
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+  )
+})
+
 test('サイドバーの開閉状態を再読み込み後も維持する', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
