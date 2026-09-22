@@ -895,3 +895,54 @@ test('長い共有URLは切断せず保存し、上限超過はエラーとし�
   await expect(dialog.getByRole('alert')).toContainText('4096')
   await expect(dialog.getByLabel('レシピのURL')).toHaveValue(tooLong)
 })
+
+test.describe('タイトル取得の回復', () => {
+  test.use({ serviceWorkers: 'block' })
+  test('クラシルの名前取得に失敗しても再取得し、保存済みの空欄も編集で補える', async ({ page }) => {
+    test.skip(!METADATA_ENDPOINT, 'タイトル取得用エンドポイントが必要')
+    const url = 'https://www.kurashiru.com/recipes/226cd24c-6fb1-4102-b6b5-ba1357825a35'
+    const title = '焼き鳥缶で簡単炊き込みご飯 作り方・レシピ'
+    await openApp(page)
+    let dialog = await openNewRecipe(page)
+    await dialog.getByLabel('レシピのURL').fill(url)
+    await dialog.getByLabel('レシピ名').focus()
+    await expect(dialog.getByText('レシピ名は取得できませんでした。入力できます。')).toBeVisible()
+    await routeLinkMetadata(page, { title, imageUrl: '' })
+    await dialog.getByRole('button', { name: 'レシピ名を再取得' }).click()
+    await expect(dialog.getByLabel('レシピ名')).toHaveValue(title)
+    await dialog.getByRole('button', { name: 'キャンセル' }).click()
+
+    // 同じページでも失敗した結果を保持し続けず、保存後の編集で回復できる。
+    await page.reload()
+    await routeLinkMetadata(page)
+    dialog = await openNewRecipe(page)
+    await dialog.getByLabel('レシピのURL').fill(url)
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    const detail = page.getByRole('dialog', { name: 'レシピ', exact: true })
+    await expect(
+      detail.getByRole('heading', { name: 'クラシルのレシピ', exact: true }),
+    ).toBeVisible()
+    await routeLinkMetadata(page, { title, imageUrl: '' })
+    await detail.getByRole('button', { name: '編集', exact: true }).click()
+    dialog = page.getByRole('dialog', { name: 'レシピを編集' })
+    await expect(dialog.getByLabel('レシピ名')).toHaveValue(title)
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    await expect(detail.getByRole('heading', { name: title, exact: true })).toBeVisible()
+  })
+
+  test('タイトル取得用サーバーが5秒を超えて応答しても名前を保存する', async ({ page }) => {
+    test.skip(!METADATA_ENDPOINT, 'タイトル取得用エンドポイントが必要')
+    await page.route(`${new URL(METADATA_ENDPOINT).origin}/**`, async (route) => {
+      // Workerは上流に最大8秒待つため、その範囲内の遅延を再現する。
+      await new Promise((resolve) => setTimeout(resolve, 5_500))
+      await route.fulfill({ json: { title: '取得が遅いレシピ', imageUrl: '' } })
+    })
+    await openApp(page)
+    const dialog = await openNewRecipe(page)
+    await dialog.getByLabel('レシピのURL').fill('https://example.com/slow-metadata')
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    await expect(page.getByRole('dialog', { name: 'レシピ', exact: true })).toContainText(
+      '取得が遅いレシピ',
+    )
+  })
+})

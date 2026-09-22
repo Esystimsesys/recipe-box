@@ -117,9 +117,13 @@ export function oEmbedUrl(url: string): string {
   }
 }
 
-async function request<T>(url: string, read: (response: Response) => Promise<T>): Promise<T> {
+async function request<T>(
+  url: string,
+  read: (response: Response) => Promise<T>,
+  timeoutMs = 5_000,
+): Promise<T> {
   const controller = new AbortController()
-  const timer = globalThis.setTimeout(() => controller.abort(), 5_000)
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(url, {
       credentials: 'omit',
@@ -200,10 +204,15 @@ export function metadataProxyUrl(url: string, endpoint = LINK_METADATA_ENDPOINT)
 }
 
 async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkMetadata> {
-  const data = await request(proxyUrl, async (response) => {
-    if (!response.ok) throw new Error('ページ情報を取得できませんでした。')
-    return (await response.json()) as { title?: unknown; imageUrl?: unknown }
-  })
+  const data = await request(
+    proxyUrl,
+    async (response) => {
+      if (!response.ok) throw new Error('ページ情報を取得できませんでした。')
+      return (await response.json()) as { title?: unknown; imageUrl?: unknown }
+    },
+    // Workerの上流タイムアウト8秒に通信分の余裕を加える。
+    10_000,
+  )
   return { title: cleanText(data.title), imageUrl: safeImageUrl(data.imageUrl, sourceUrl) }
 }
 
