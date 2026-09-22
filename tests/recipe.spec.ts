@@ -898,6 +898,66 @@ test('長い共有URLは切断せず保存し、上限超過はエラーとし�
 
 test.describe('タイトル取得の回復', () => {
   test.use({ serviceWorkers: 'block' })
+
+  test('設定から空欄のレシピ名を一括取得し、入力済みの名前を保つ', async ({ page }) => {
+    test.skip(!METADATA_ENDPOINT, 'タイトル取得用エンドポイントが必要')
+    await openApp(page)
+    for (const [path, title] of [
+      ['one', ''],
+      ['two', ''],
+      ['three', ''],
+      ['manual', '手入力した名前'],
+    ]) {
+      const dialog = await openNewRecipe(page)
+      await dialog.getByLabel('レシピのURL').fill(`https://example.com/${path}`)
+      if (title) await dialog.getByLabel('レシピ名').fill(title)
+      await dialog.getByRole('button', { name: '保存する' }).click()
+      await closeDialog(page, 'レシピ')
+    }
+
+    const endpoint = `${new URL(METADATA_ENDPOINT).origin}/**`
+    await page.route(endpoint, (route) => {
+      const target = new URL(route.request().url()).searchParams.get('url') || ''
+      const title = target.endsWith('/three')
+        ? ''
+        : target.endsWith('/manual')
+          ? '上書きされてはいけない名前'
+          : target.endsWith('/one')
+            ? '一件目の名前'
+            : '二件目の名前'
+      return route.fulfill({ json: { title, imageUrl: '' } })
+    })
+    await openSettings(page)
+    await expect(page.getByText('対象は3件です。')).toBeVisible()
+    await page.getByRole('button', { name: 'レシピ名を一括取得' }).click()
+    await expect(page.getByRole('status').filter({ hasText: '完了：' })).toContainText(
+      '完了：2件を更新、1件は更新できませんでした。',
+    )
+    await expect(page.getByText('対象は1件です。')).toBeVisible()
+
+    await page.route(endpoint, (route) =>
+      route.fulfill({ json: { title: '三件目の名前', imageUrl: '' } }),
+    )
+    await page.getByRole('button', { name: 'レシピ名を一括取得' }).click()
+    await expect(page.getByRole('status').filter({ hasText: '完了：' })).toContainText(
+      '完了：1件を更新、0件は更新できませんでした。',
+    )
+    await expect(page.getByRole('button', { name: 'レシピ名を一括取得' })).toBeDisabled()
+    await page.getByRole('button', { name: '一覧に戻る' }).click()
+    await expect(page.locator('.recipe-card .card-title')).toContainText([
+      '手入力した名前',
+      '三件目の名前',
+      '二件目の名前',
+      '一件目の名前',
+    ])
+    await page.reload()
+    await expect(page.locator('.recipe-card .card-title')).toContainText([
+      '手入力した名前',
+      '三件目の名前',
+      '二件目の名前',
+      '一件目の名前',
+    ])
+  })
   test('クラシルの名前取得に失敗しても再取得し、保存済みの空欄も編集で補える', async ({ page }) => {
     test.skip(!METADATA_ENDPOINT, 'タイトル取得用エンドポイントが必要')
     const url = 'https://www.kurashiru.com/recipes/226cd24c-6fb1-4102-b6b5-ba1357825a35'
