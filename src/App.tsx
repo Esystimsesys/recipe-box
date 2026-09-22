@@ -779,9 +779,13 @@ export default function App() {
       <div className="workspace">
         <header className="topbar">
           <a className="brand" href={import.meta.env.BASE_URL} aria-label="ひとさじ トップへ">
-            <span className="brand-mark" aria-hidden="true">
-              <CookingPot size={25} />
-            </span>
+            <img
+              className="brand-mark"
+              src={`${import.meta.env.BASE_URL}icon.svg`}
+              alt=""
+              width="38"
+              height="38"
+            />
             <span className="brand-copy">
               <strong>ひとさじ</strong>
               <span>わたしのレシピ帳</span>

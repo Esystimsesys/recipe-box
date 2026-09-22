@@ -106,20 +106,10 @@ textarea:disabled {
 }
 
 .brand-mark {
-  display: grid;
+  display: block;
   width: 38px;
   height: 38px;
   flex: 0 0 38px;
-  place-items: center;
-  padding: 8px;
-  border-radius: 50% 50% 48% 52%;
-  background: var(--pine);
-  color: #fff;
-}
-
-.brand-mark svg {
-  width: 24px;
-  height: 24px;
 }
 
 .brand-copy {

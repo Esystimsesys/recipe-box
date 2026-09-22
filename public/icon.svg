@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#255544"/><g fill="none" stroke="#faf8f3" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"><path d="M124 232h264c0 86-48 144-132 144S124 318 124 232Z"/><path d="M183 411h146M210 104c-32 42 32 46 0 86M291 83c-32 42 32 46 0 86"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ひとさじのスプーン">
+  <rect width="512" height="512" rx="112" fill="#255544"/>
+  <g id="artwork">
+    <g transform="rotate(-36 256 256)">
+      <path fill="#faf8f3" d="M83 258c0-14 11-25 25-25h176c23 0 37-5 53-15 22-14 47-21 75-21h13c12 0 20 9 19 22-11 76-64 127-141 127-50 0-90-28-106-70h-89c-14 0-25-7-25-18Z"/>
+      <path fill="none" stroke="#d6a460" stroke-width="20" stroke-linecap="round" d="M312 249c30 2 58-3 83-16"/>
+    </g>
+  </g>
+</svg>

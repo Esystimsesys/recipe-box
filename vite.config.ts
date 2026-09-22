@@ -30,7 +30,7 @@ export default defineConfig(({ mode }) => {
       },
       VitePWA({
         registerType: 'prompt',
-        includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+        includeAssets: ['icon.svg', 'favicon-32.png', 'favicon.ico', 'apple-touch-icon.png'],
         manifest: {
           name: 'ひとさじ — わたしのレシピ帳',
           short_name: 'ひとさじ',
