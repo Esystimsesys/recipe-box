@@ -11,7 +11,7 @@
 - インストール後のオフライン利用
 - Androidの共有メニューからURLを受け取り、確認して登録
 
-外部レシピの本文・動画は取り込みません。YouTubeなどのoEmbed対応サービスや、ブラウザからの取得を許可している公開ページでは、タイトルとプレビュー画像のURLだけを取得します。取得できない場合もURLは保存でき、作り方は元サイトを開いて確認します。レシピ、写真、メモはブラウザのIndexedDBに保存され、サーバーへの送信や自動同期は行いません。
+外部レシピの本文・動画は取り込みません。YouTubeやTikTokのoEmbed、クラシル公式レシピ（`/recipes/`）の公開サムネイル、Instagramの公開埋め込みを使ってプレビューを表示します。Xの公開投稿は[FxEmbedの公開API](https://github.com/FxEmbed/FxEmbed/blob/main/docs/src/content/docs/api/introduction.mdx)に投稿IDを送って画像URLを取得します。TikTokの画像URLが期限切れになった場合は再取得します。非公開・削除済みの投稿など、画像を取得できない場合もURLは保存でき、作り方は元サイトを開いて確認します。レシピ、料理写真、メモはブラウザのIndexedDBに保存され、アプリ独自のサーバーへの送信や自動同期は行いません。
 
 公開先：[GitHub Pages](https://esystimsesys.github.io/recipe-box/)
 リポジトリ：[Esystimsesys/recipe-box](https://github.com/Esystimsesys/recipe-box)

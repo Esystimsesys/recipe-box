@@ -35,7 +35,14 @@ import {
   type Photo,
   type Recipe,
 } from './domain'
-import { cookpadPreviewUrl, fetchLinkMetadata } from './preview'
+import {
+  directPreviewUrl,
+  fetchLinkMetadata,
+  hasDynamicPreview,
+  instagramEmbedUrl,
+  previewUrlExpiresSoon,
+  type LinkMetadata,
+} from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 import { takeSharedLink, type SharedLink } from './shared-link'
 
@@ -415,9 +422,54 @@ function RecipeForm({
   )
 }
 
+const previewRequests = new Map<string, Promise<LinkMetadata>>()
+
+function loadPreview(url: string, refresh = false): Promise<LinkMetadata> {
+  if (refresh || !previewRequests.has(url)) {
+    const request = fetchLinkMetadata(url)
+    previewRequests.set(url, request)
+    request.then((metadata) => {
+      if (!metadata.imageUrl && previewRequests.get(url) === request) previewRequests.delete(url)
+    })
+  }
+  return previewRequests.get(url)!
+}
+
 function RecipeImage({ recipe }: { recipe: Recipe }) {
-  const src = recipe.photos[0]?.dataUrl || recipe.imageUrl || cookpadPreviewUrl(recipe.url)
+  const embed = !recipe.photos.length ? instagramEmbedUrl(recipe.url) : ''
+  const [remoteUrl, setRemoteUrl] = useState('')
   const [failed, setFailed] = useState('')
+  const [retried, setRetried] = useState(false)
+  const directUrl = directPreviewUrl(recipe.url)
+  const storedUrl = recipe.imageUrl || ''
+  const src =
+    recipe.photos[0]?.dataUrl ||
+    remoteUrl ||
+    (failed === storedUrl && directUrl ? directUrl : storedUrl || directUrl)
+
+  useEffect(() => {
+    if (recipe.photos.length || embed || !hasDynamicPreview(recipe.url)) return
+    if (src && !previewUrlExpiresSoon(src)) return
+    let active = true
+    loadPreview(recipe.url, previewUrlExpiresSoon(src)).then((metadata) => {
+      if (active && metadata.imageUrl) setRemoteUrl(metadata.imageUrl)
+    })
+    return () => {
+      active = false
+    }
+  }, [recipe.url, recipe.photos.length, embed, src])
+
+  if (embed)
+    return (
+      <iframe
+        className="instagram-preview"
+        src={embed}
+        title={`${titleOf(recipe)}のInstagram投稿`}
+        loading="lazy"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+    )
   if (!src || failed === src)
     return (
       <div className={`photo-placeholder ${recipe.kind === 'paper' ? 'paper-placeholder' : ''}`}>
@@ -432,7 +484,15 @@ function RecipeImage({ recipe }: { recipe: Recipe }) {
       loading="lazy"
       className={!recipe.photos.length ? 'source-preview' : undefined}
       alt={titleOf(recipe)}
-      onError={() => setFailed(src)}
+      onError={() => {
+        setFailed(src)
+        if (!retried && !recipe.photos.length && hasDynamicPreview(recipe.url)) {
+          setRetried(true)
+          loadPreview(recipe.url, true).then((metadata) => {
+            if (metadata.imageUrl !== src) setRemoteUrl(metadata.imageUrl)
+          })
+        }
+      }}
     />
   )
 }
@@ -478,17 +538,21 @@ function RecipeDetail({
             <img src={recipe.photos[0].dataUrl} alt={titleOf(recipe)} />
           </button>
         )}
-        {!recipe.photos.length && (recipe.imageUrl || cookpadPreviewUrl(recipe.url)) && (
-          <a
-            className="detail-cover"
-            href={recipe.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="元のレシピを画像から開く"
-          >
-            <RecipeImage recipe={recipe} />
-          </a>
-        )}
+        {!recipe.photos.length &&
+          (recipe.imageUrl ||
+            directPreviewUrl(recipe.url) ||
+            instagramEmbedUrl(recipe.url) ||
+            hasDynamicPreview(recipe.url)) && (
+            <a
+              className="detail-cover"
+              href={recipe.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="元のレシピを画像から開く"
+            >
+              <RecipeImage recipe={recipe} />
+            </a>
+          )}
         <div className="detail-head">
           <p className="eyebrow detail-source">
             {recipe.kind === 'paper' ? recipe.source || '手動登録' : recipe.source}
@@ -1053,9 +1117,9 @@ export default function App() {
                     </section>
                     <section className="settings-card">
                       <HardDrive className="setting-icon" />
-                      <h2>このブラウザに保存しています</h2>
+                      <h2>この端末内に保存しています</h2>
                       <p>
-                        レシピと写真は、この端末のこのブラウザに保存されます。サーバーへの送信や、自動同期は行いません。
+                        レシピと写真は、今開いている「ひとさじ」の保存領域に保存されます。サーバーへの送信や、自動同期は行いません。
                       </p>
                       <p>
                         ブラウザのデータ削除やプライベートブラウズでは、記録が失われる場合があります。定期的にバックアップを保存してください。
@@ -1072,7 +1136,7 @@ export default function App() {
                         )}
                       </div>
                       <p className="fineprint">
-                        同じ端末でも、ChromeとSafari、アクセスするURLが異なる場合は保存先が分かれます。
+                        同じ端末でも、ホーム画面版とブラウザ版、ChromeとSafari、アクセスするURLが異なる場合は保存先が分かれます。
                       </p>
                     </section>
                     <section className="settings-card">
@@ -1136,7 +1200,7 @@ export default function App() {
                       <LinkIcon className="setting-icon" />
                       <h2>iPhoneの共有から登録</h2>
                       <p>
-                        ショートカットを追加すると、SafariやChromeなどの「共有」からレシピのURLを登録画面へ送れます。
+                        ショートカットを使うと、SafariやChromeなどの「共有」からブラウザ版の登録画面へURLを送れます。ホーム画面版には登録されません。
                       </p>
                       <a
                         className="secondary"
@@ -1148,7 +1212,7 @@ export default function App() {
                         <ArrowUpRight size={18} aria-hidden="true" />
                       </a>
                       <p className="fineprint">
-                        iPhoneでリンクを開き、「ショートカットを入手」から追加してください。登録したレシピは、開いたブラウザに保存されます。
+                        iPhoneでリンクを開き、「ショートカットを入手」から追加してください。ホーム画面版に保存したい場合は、レシピのURLをコピーし、ホーム画面の「ひとさじ」で「追加」→「URLから」に貼り付けてください。
                       </p>
                     </section>
                     <section className="settings-card">

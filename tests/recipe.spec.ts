@@ -350,6 +350,159 @@ test('YouTubeのURLからタイトルとプレビュー画像を取得する', a
   )
 })
 
+test('クラシル・X・Instagramのリンク画像をカードに表示する', async ({ page }) => {
+  await page.route('https://www.kurashiru.com/recipes/**', (route) =>
+    route.fulfill({ status: 403 }),
+  )
+  await page.route('https://video.kurashiru.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG }),
+  )
+  await page.route('https://api.fxtwitter.com/2/status/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200,
+        status: {
+          text: 'Xの料理',
+          media: { photos: [{ url: 'https://pbs.twimg.com/media/dish.jpg' }] },
+        },
+      }),
+    }),
+  )
+  await page.route('https://pbs.twimg.com/media/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG }),
+  )
+  await page.route('https://www.instagram.com/p/**/embed/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<div style="height:56px"></div><img alt="投稿写真" style="display:block;width:100%;height:400px" src="data:image/png;base64,${PIXEL_PNG.toString('base64')}">`,
+    }),
+  )
+  await openApp(page)
+
+  for (const [url, title] of [
+    ['https://www.kurashiru.com/recipes/9ab38152-75d5-4ef2-bc66-fc83bdfb0899', 'クラシル料理'],
+    ['https://x.com/ore825/status/1089823055684091904', 'Xの料理'],
+    ['https://www.instagram.com/reel/C6qVNUPyhRc/', 'Instagram料理'],
+  ]) {
+    const dialog = await openNewRecipe(page)
+    await dialog.getByLabel('レシピのURL').fill(url)
+    await dialog.getByLabel('レシピ名').fill(title)
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    await closeDialog(page, 'レシピ')
+  }
+
+  const kurashiru = page.locator('.recipe-card').filter({ hasText: 'クラシル料理' })
+  await expect(kurashiru.getByRole('img', { name: 'クラシル料理' })).toHaveJSProperty(
+    'naturalWidth',
+    1,
+  )
+  const x = page.locator('.recipe-card').filter({ hasText: 'Xの料理' })
+  await expect(x.getByRole('img', { name: 'Xの料理' })).toHaveJSProperty('naturalWidth', 1)
+  const instagram = page.locator('.recipe-card').filter({ hasText: 'Instagram料理' })
+  await expect(instagram.locator('iframe.instagram-preview')).toHaveAttribute(
+    'src',
+    'https://www.instagram.com/p/C6qVNUPyhRc/embed/',
+  )
+  await expect(instagram.frameLocator('iframe').locator('img')).toBeVisible()
+})
+
+test('期限切れのTikTokサムネイルを再取得する', async ({ page }) => {
+  let requests = 0
+  await page.route('https://www.tiktok.com/oembed?**', (route) => {
+    requests += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        title: 'クラシル動画',
+        thumbnail_url: `https://p16.tiktokcdn.com/dish.jpg?x-expires=${Math.floor(Date.now() / 1000) + (requests === 1 ? -1 : 3600)}`,
+      }),
+    })
+  })
+  await page.route('https://p16.tiktokcdn.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG }),
+  )
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog
+    .getByLabel('レシピのURL')
+    .fill('https://www.tiktok.com/@kurashiru.com/video/7329796860212808967')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  const detail = page.getByRole('dialog', { name: 'レシピ' })
+  await expect(detail.getByRole('img', { name: 'クラシル動画' })).toHaveAttribute(
+    'src',
+    /x-expires=\d+/,
+  )
+  await expect.poll(() => requests).toBeGreaterThan(1)
+})
+
+test('保存済みで画像が空のX投稿を再表示時に取得する', async ({ page }) => {
+  let available = false
+  await page.route('**/sw.js', (route) => route.abort())
+  await page.route('https://api.fxtwitter.com/2/status/**', (route) =>
+    route.fulfill(
+      available
+        ? {
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              code: 200,
+              status: { media: { photos: [{ url: 'https://pbs.twimg.com/media/existing.jpg' }] } },
+            }),
+          }
+        : { status: 503 },
+    ),
+  )
+  await page.route('https://pbs.twimg.com/media/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG }),
+  )
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://x.com/ore825/status/1089823055684091904')
+  await dialog.getByLabel('レシピ名').fill('保存済みのXレシピ')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await closeDialog(page, 'レシピ')
+  await expect(page.locator('.recipe-card .photo-placeholder')).toBeVisible()
+
+  available = true
+  await page.reload()
+  await expect(page.getByRole('img', { name: '保存済みのXレシピ' })).toHaveJSProperty(
+    'naturalWidth',
+    1,
+  )
+})
+
+test('保存済みのクラシル画像URLが壊れていても公開画像へ切り替える', async ({ page }) => {
+  await page.route('https://www.kurashiru.com/recipes/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      headers: { 'access-control-allow-origin': '*' },
+      body: '<meta property="og:image" content="https://images.example.com/old.jpg">',
+    }),
+  )
+  await page.route('https://images.example.com/old.jpg', (route) => route.fulfill({ status: 404 }))
+  await page.route('https://video.kurashiru.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG }),
+  )
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog
+    .getByLabel('レシピのURL')
+    .fill('https://www.kurashiru.com/recipes/9ab38152-75d5-4ef2-bc66-fc83bdfb0899')
+  await dialog.getByLabel('レシピ名').fill('保存済みのクラシルレシピ')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await closeDialog(page, 'レシピ')
+  await page.reload()
+  await expect(page.getByRole('img', { name: '保存済みのクラシルレシピ' })).toHaveAttribute(
+    'src',
+    'https://video.kurashiru.com/production/videos/9ab38152-75d5-4ef2-bc66-fc83bdfb0899/compressed_thumbnail_square_large.jpg',
+  )
+})
+
 test('上部のブランドからトップへ戻り、設定を開閉できる', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cookpadPreviewUrl, fetchLinkMetadata, oEmbedUrl } from './preview'
+import {
+  cookpadPreviewUrl,
+  directPreviewUrl,
+  fetchLinkMetadata,
+  instagramEmbedUrl,
+  kurashiruPreviewUrl,
+  oEmbedUrl,
+  previewUrlExpiresSoon,
+} from './preview'
 
 const ogp = (id: string) => `https://og-image.cookpad.com/global/jp/recipe/${id}`
 
@@ -53,5 +61,68 @@ describe('link metadata', () => {
       title: 'かんたん料理',
       imageUrl: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
     })
+  })
+
+  it('Xの公開投稿から写真URLを取得する', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 200,
+          status: {
+            text: '  餅ボロネーゼ  ',
+            media: { photos: [{ url: 'https://pbs.twimg.com/media/dish.jpg?name=orig' }] },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    await expect(
+      fetchLinkMetadata('https://x.com/ore825/status/1089823055684091904'),
+    ).resolves.toEqual({
+      title: '餅ボロネーゼ',
+      imageUrl: 'https://pbs.twimg.com/media/dish.jpg?name=orig',
+    })
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.fxtwitter.com/2/status/1089823055684091904',
+      expect.objectContaining({ credentials: 'omit' }),
+    )
+  })
+
+  it('外部画像の期限切れを検知する', () => {
+    expect(
+      previewUrlExpiresSoon(
+        `https://example.com/a.jpg?x-expires=${Math.floor(Date.now() / 1000) - 1}`,
+      ),
+    ).toBe(true)
+    expect(
+      previewUrlExpiresSoon(
+        `https://example.com/a.jpg?x-expires=${Math.floor(Date.now() / 1000) + 3600}`,
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('direct previews', () => {
+  const kurashiruUrl = 'https://www.kurashiru.com/recipes/9ab38152-75d5-4ef2-bc66-fc83bdfb0899'
+  it('クラシルのレシピ画像を直接参照する', async () => {
+    const expected =
+      'https://video.kurashiru.com/production/videos/9ab38152-75d5-4ef2-bc66-fc83bdfb0899/compressed_thumbnail_square_large.jpg'
+    expect(kurashiruPreviewUrl(kurashiruUrl)).toBe(expected)
+    expect(directPreviewUrl(kurashiruUrl)).toBe(expected)
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('CORS'))
+    await expect(fetchLinkMetadata(kurashiruUrl)).resolves.toEqual({
+      title: '',
+      imageUrl: expected,
+    })
+  })
+
+  it('Instagramの公開埋め込みURLを作る', () => {
+    expect(instagramEmbedUrl('https://www.instagram.com/reel/C6qVNUPyhRc/')).toBe(
+      'https://www.instagram.com/p/C6qVNUPyhRc/embed/',
+    )
+    expect(instagramEmbedUrl('https://instagram.com/p/abc123/')).toBe(
+      'https://www.instagram.com/p/abc123/embed/',
+    )
+    expect(instagramEmbedUrl('https://evilinstagram.com/p/abc123/')).toBe('')
   })
 })

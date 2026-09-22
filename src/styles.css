@@ -757,6 +757,21 @@ textarea:disabled {
   height: 100%;
 }
 
+.instagram-preview {
+  display: block;
+  width: 100%;
+  height: calc(100% + 56px);
+  margin-top: -56px;
+  border: 0;
+  pointer-events: none;
+}
+
+.detail-cover .instagram-preview {
+  height: 480px;
+  max-height: 70vh;
+  margin-top: -56px;
+}
+
 .card-open:hover img.card-image,
 .card-open:hover .card-image img {
   transform: scale(1.025);
