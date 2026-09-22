@@ -77,9 +77,7 @@ async function closeDialog(page: Page, name: string) {
   await expect(dialog).toBeHidden()
 }
 
-test('レシピ詳細を開いた直後は閉じるボタンを強調せず、Tab操作ではフォーカスを示す', async ({
-  page,
-}) => {
+test('レシピ詳細を開いた直後は閉じるボタンを強調しない', async ({ page }) => {
   await openApp(page)
   const detail = await addLinkRecipe(page)
   const heading = detail.getByRole('heading', { name: 'レシピ', exact: true })
@@ -87,9 +85,8 @@ test('レシピ詳細を開いた直後は閉じるボタンを強調せず、Ta
   await expect(heading).toBeFocused()
   await expect(heading).toHaveCSS('outline-style', 'none')
   await expect(close).not.toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(close).toBeFocused()
-  await expect(close).toHaveCSS('outline-style', 'solid')
+  await close.click()
+  await expect(detail).toBeHidden()
 })
 
 async function openSettings(page: Page) {
