@@ -51,6 +51,7 @@ import {
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 import { takeSharedLink, type SharedLink } from './shared-link'
 import { version } from '../package.json'
+import { isGenericYouTubeDescription } from '../worker/src/extract'
 
 type Page = 'recipes' | 'settings'
 type RecipeLayout = 'small' | 'medium' | 'large' | 'list'
@@ -65,7 +66,8 @@ type RefreshProgress = {
 function needsSourceContent(recipe: Recipe): boolean {
   if (recipe.kind !== 'link' || !recipe.url) return false
   const sourceKind = sourceContentKind(recipe.url)
-  if (sourceKind === 'description') return !recipe.searchText?.trim()
+  if (sourceKind === 'description')
+    return !recipe.searchText?.trim() || isGenericYouTubeDescription(recipe.searchText || '')
   if (sourceKind === 'ingredients') return recipe.ingredients.length === 0
   return false
 }
@@ -1046,18 +1048,22 @@ export default function App() {
             try {
               const metadata = await fetchLinkMetadata(recipe.url)
               const sourceKind = sourceContentKind(recipe.url)
-              const content =
-                sourceKind === 'description'
-                  ? {
-                      searchText:
-                        metadata.description?.trim().slice(0, RECIPE_LIMITS.searchText) || '',
-                    }
-                  : { ingredients: parseIngredients(metadata.ingredients?.join('\n') || '') }
-              if (!('searchText' in content ? content.searchText : content.ingredients.length)) {
-                failed++
-                return
+              if (sourceKind === 'description') {
+                const description =
+                  metadata.description?.trim().slice(0, RECIPE_LIMITS.searchText) || ''
+                if (!description && !isGenericYouTubeDescription(recipe.searchText || '')) {
+                  failed++
+                  return
+                }
+                await saveRecipe(changed({ ...recipe, searchText: description }), recipe.updatedAt)
+              } else {
+                const ingredients = parseIngredients(metadata.ingredients?.join('\n') || '')
+                if (!ingredients.length) {
+                  failed++
+                  return
+                }
+                await saveRecipe(changed({ ...recipe, ingredients }), recipe.updatedAt)
               }
-              await saveRecipe(changed({ ...recipe, ...content }), recipe.updatedAt)
               updated++
             } catch {
               // A failed lookup or concurrent edit leaves the existing record untouched.
@@ -1488,7 +1494,7 @@ export default function App() {
                       <div className="settings-action">
                         <h3>材料などをまとめて取得</h3>
                         <p>
-                          料理サイトの材料とYouTubeの概要欄を、空欄の記録に追加します。入力済みの内容は変更しません。対象は
+                          料理サイトの材料とYouTubeの概要欄を、空欄の記録に追加します。誤って保存されたYouTubeの共通案内文も修正します。手入力した内容は変更しません。対象は
                           {missingContentCount}件です。
                         </p>
                         <button

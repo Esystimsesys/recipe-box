@@ -1,4 +1,5 @@
 import { RECIPE_LIMITS } from './domain'
+import { isGenericYouTubeDescription } from '../worker/src/extract'
 
 const LINK_METADATA_ENDPOINT = import.meta.env.VITE_LINK_METADATA_ENDPOINT || ''
 
@@ -227,7 +228,8 @@ async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkM
       ? data.ingredients.filter((item): item is string => typeof item === 'string').slice(0, 200)
       : [],
     description:
-      typeof data.description === 'string'
+      typeof data.description === 'string' &&
+      !(sourceIsYouTube(sourceUrl) && isGenericYouTubeDescription(data.description))
         ? data.description.slice(0, RECIPE_LIMITS.searchText)
         : '',
   }
@@ -253,9 +255,7 @@ async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
       meta('meta[property="og:image"]') || meta('meta[name="twitter:image"]'),
       url,
     ),
-    description: sourceIsYouTube(url)
-      ? (meta('meta[name="description"]') || '').slice(0, RECIPE_LIMITS.searchText)
-      : '',
+    description: '',
   }
 }
 

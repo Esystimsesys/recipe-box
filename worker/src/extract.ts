@@ -32,3 +32,11 @@ export function youtubeDescription(script: string, maxLength = 30_000): string {
     return ''
   }
 }
+
+export function isGenericYouTubeDescription(value: string): boolean {
+  const text = value.replace(/\s+/gu, ' ').trim()
+  return (
+    text.startsWith('YouTube でお気に入りの動画や音楽を楽しみ') ||
+    text.startsWith('Enjoy the videos and music you love, upload original content')
+  )
+}

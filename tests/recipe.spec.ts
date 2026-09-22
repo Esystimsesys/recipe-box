@@ -378,6 +378,26 @@ test('YouTubeのURLからタイトルとプレビュー画像を取得する', a
   )
 })
 
+test('YouTubeの共通案内文を概要欄として保存しない', async ({ page }) => {
+  test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
+  const generic =
+    'YouTube でお気に入りの動画や音楽を楽しみ、オリジナルのコンテンツをアップロードして友だちや家族、世界中の人たちと共有しましょう。'
+  await routeLinkMetadata(page, {
+    title: '動画のレシピ',
+    imageUrl: '',
+    ingredients: [],
+    description: generic,
+  })
+  await page.route('https://www.youtube.com/oembed?**', (route) =>
+    route.fulfill({ json: { title: '動画のレシピ', thumbnail_url: '' } }),
+  )
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://youtu.be/abcdefghijk')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(page.getByRole('dialog', { name: 'レシピ' })).not.toContainText(generic)
+})
+
 test('料理サイトの材料を自動で保存し検索できる', async ({ page }) => {
   test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
   await routeLinkMetadata(page, {
@@ -939,15 +959,19 @@ test('長い共有URLは切断せず保存し、上限超過はエラーとし�
 test.describe('タイトル取得の回復', () => {
   test.use({ serviceWorkers: 'block' })
 
-  test('既存の空欄だけに材料と概要欄を追加し、手入力は保つ', async ({ page }) => {
+  test('既存の空欄とYouTube共通の案内文を更新し、手入力は保つ', async ({ page }) => {
     test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
     await page.route('https://www.youtube.com/oembed?**', (route) =>
       route.fulfill({ json: { title: '動画のレシピ', thumbnail_url: '' } }),
     )
     await openApp(page)
+    const generic =
+      'YouTube でお気に入りの動画や音楽を楽しみ、オリジナルのコンテンツをアップロードして友だちや家族、世界中の人たちと共有しましょう。'
     for (const [url, title, content] of [
       ['https://example.com/soup', 'スープ', ''],
       ['https://youtu.be/abcdefghijk', '動画のレシピ', ''],
+      ['https://youtu.be/goodvideo12', '案内文を修正する動画', generic],
+      ['https://youtu.be/missingvid1', '概要欄を取得できない動画', generic],
       ['https://example.com/manual', '手入力の料理', '手入力の材料'],
     ]) {
       const dialog = await openNewRecipe(page)
@@ -966,7 +990,11 @@ test.describe('タイトル取得の回復', () => {
               title: '動画のレシピ',
               imageUrl: '',
               ingredients: [],
-              description: '鶏むね肉の節約料理',
+              description: target.includes('goodvideo12')
+                ? '豆腐の作り置き'
+                : target.includes('missingvid1')
+                  ? ''
+                  : '鶏むね肉の節約料理',
             }
           : { title: 'スープ', imageUrl: '', ingredients: ['かぼちゃ 200g'], description: '' },
       })
@@ -975,17 +1003,21 @@ test.describe('タイトル取得の回復', () => {
     const contentAction = page.locator('.settings-action').filter({
       has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
     })
-    await expect(contentAction.getByText('対象は2件です。')).toBeVisible()
+    await expect(contentAction.getByText('対象は4件です。')).toBeVisible()
     await contentAction.getByRole('button', { name: '材料などを一括取得' }).click()
     await expect(contentAction.getByRole('status')).toContainText(
-      '完了：2件を更新、0件は更新できませんでした。',
+      '完了：4件を更新、0件は更新できませんでした。',
     )
-    await expect(contentAction.getByText('対象は0件です。')).toBeVisible()
+    await expect(contentAction.getByText('対象は1件です。')).toBeVisible()
     await page.getByRole('button', { name: '一覧に戻る' }).click()
     await page.getByRole('textbox', { name: 'レシピを検索' }).fill('かぼちゃ')
     await expect(page.locator('.recipe-card')).toHaveCount(1)
     await page.getByRole('textbox', { name: 'レシピを検索' }).fill('節約料理')
     await expect(page.locator('.recipe-card')).toHaveCount(1)
+    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('作り置き')
+    await expect(page.locator('.recipe-card')).toHaveCount(1)
+    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('お気に入りの動画')
+    await expect(page.locator('.recipe-card')).toHaveCount(0)
     await page.getByRole('textbox', { name: 'レシピを検索' }).fill('手入力の材料')
     await expect(page.locator('.recipe-card')).toHaveCount(1)
   })

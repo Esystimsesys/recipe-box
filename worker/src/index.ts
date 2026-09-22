@@ -1,4 +1,4 @@
-import { recipeIngredients, youtubeDescription } from './extract'
+import { isGenericYouTubeDescription, recipeIngredients, youtubeDescription } from './extract'
 
 /**
  * 「ひとさじ」のリンクメタデータ取得。
@@ -13,7 +13,7 @@ const UPSTREAM_TIMEOUT_MS = 8_000
 const UPSTREAM_CACHE_SECONDS = 3_600
 const RESULT_CACHE_SECONDS = 21_600
 /** 取り出し方を変えたら上げる。古いキャッシュを読まないようにするため。 */
-const RESULT_CACHE_VERSION = 3
+const RESULT_CACHE_VERSION = 4
 const MAX_TITLE_LENGTH = 300
 const MAX_SEARCH_TEXT_LENGTH = 30_000
 const USER_AGENT = 'hitosaji-link-metadata/1.0 (+https://github.com/Esystimsesys/recipe-box)'
@@ -194,7 +194,6 @@ async function readMetadata(target: URL): Promise<Metadata> {
   let ogImage = ''
   let twitterImage = ''
   let description = ''
-  let metaDescription = ''
   let structured = ''
   let ingredients: string[] = []
   let inStructured = false
@@ -213,8 +212,6 @@ async function readMetadata(target: URL): Promise<Metadata> {
         else if (key === 'og:site_name') siteName ||= content
         else if (key === 'og:image' || key === 'og:image:secure_url') ogImage ||= content
         else if (key === 'twitter:image') twitterImage ||= content
-        else if (youtube && (key === 'description' || key === 'og:description'))
-          metaDescription ||= content
       },
     })
     .on('script', {
@@ -259,7 +256,10 @@ async function readMetadata(target: URL): Promise<Metadata> {
     title: withoutSiteName(title, cleanText(siteName)),
     imageUrl: httpsImageUrl(ogImage || twitterImage, response.url || target.toString()),
     ingredients: [...new Set(ingredients)].slice(0, 200),
-    description: youtube ? (description || metaDescription).slice(0, MAX_SEARCH_TEXT_LENGTH) : '',
+    description:
+      youtube && !isGenericYouTubeDescription(description)
+        ? description.slice(0, MAX_SEARCH_TEXT_LENGTH)
+        : '',
   }
 }
 
