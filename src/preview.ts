@@ -81,6 +81,8 @@ export function previewUrlExpiresSoon(url: string): boolean {
 export type LinkMetadata = {
   title: string
   imageUrl: string
+  ingredients?: string[]
+  description?: string
 }
 
 function cleanText(value: unknown): string {
@@ -208,12 +210,27 @@ async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkM
     proxyUrl,
     async (response) => {
       if (!response.ok) throw new Error('ページ情報を取得できませんでした。')
-      return (await response.json()) as { title?: unknown; imageUrl?: unknown }
+      return (await response.json()) as {
+        title?: unknown
+        imageUrl?: unknown
+        ingredients?: unknown
+        description?: unknown
+      }
     },
     // Workerの上流タイムアウト8秒に通信分の余裕を加える。
     10_000,
   )
-  return { title: cleanText(data.title), imageUrl: safeImageUrl(data.imageUrl, sourceUrl) }
+  return {
+    title: cleanText(data.title),
+    imageUrl: safeImageUrl(data.imageUrl, sourceUrl),
+    ingredients: Array.isArray(data.ingredients)
+      ? data.ingredients.filter((item): item is string => typeof item === 'string').slice(0, 200)
+      : [],
+    description:
+      typeof data.description === 'string'
+        ? data.description.slice(0, RECIPE_LIMITS.searchText)
+        : '',
+  }
 }
 
 async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
@@ -236,6 +253,9 @@ async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
       meta('meta[property="og:image"]') || meta('meta[name="twitter:image"]'),
       url,
     ),
+    description: sourceIsYouTube(url)
+      ? (meta('meta[name="description"]') || '').slice(0, RECIPE_LIMITS.searchText)
+      : '',
   }
 }
 
@@ -252,7 +272,21 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
   const endpoint = oEmbedUrl(url)
   if (endpoint) {
     try {
-      return await fetchOEmbed(endpoint, url)
+      const embedded = await fetchOEmbed(endpoint, url)
+      if (sourceIsYouTube(url)) {
+        try {
+          const page = await fetchOpenGraph(url)
+          return {
+            ...embedded,
+            description: page.description || '',
+            imageUrl: embedded.imageUrl || page.imageUrl,
+            title: embedded.title || page.title,
+          }
+        } catch {
+          return embedded
+        }
+      }
+      return embedded
     } catch {
       // Some providers or individual posts do not expose oEmbed. Try the page itself next.
     }
@@ -262,5 +296,14 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
     return { ...metadata, imageUrl: metadata.imageUrl || directImage }
   } catch {
     return { title: '', imageUrl: directImage }
+  }
+}
+
+function sourceIsYouTube(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com')
+  } catch {
+    return false
   }
 }
