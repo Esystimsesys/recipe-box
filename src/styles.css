@@ -1117,6 +1117,10 @@ textarea:disabled {
   font-size: 1.35rem;
 }
 
+.dialog-header h2[tabindex='-1']:focus-visible {
+  outline: none;
+}
+
 .dialog-body {
   min-height: 0;
   overflow: auto;
