@@ -5,6 +5,8 @@ import {
   Search,
   Heart,
   Settings,
+  Share2,
+  Smartphone,
   ArrowUpRight,
   X,
   Link as LinkIcon,
@@ -24,6 +26,7 @@ import {
   Grid2X2,
 } from 'lucide-react'
 import {
+  duplicateKey,
   exportBackup,
   matchesRecipe,
   newId,
@@ -48,7 +51,29 @@ import { takeSharedLink, type SharedLink } from './shared-link'
 
 type Page = 'recipes' | 'settings'
 type RecipeLayout = 'small' | 'medium' | 'large' | 'list'
+type RecipeOrder = 'added' | 'updated' | 'title'
+const ORDER_LABELS: Record<RecipeOrder, string> = {
+  added: '最近追加した順',
+  updated: '最近更新した順',
+  title: '名前順',
+}
 const IOS_SHORTCUT_URL = 'https://www.icloud.com/shortcuts/f78f1b3c4d8749bfa6b7e631159f7ae3'
+/** 共有の手順は端末で違うため、当てはまるものだけを出す。判別できなければ両方を並べる。 */
+function sharePlatform(): 'ios' | 'android' | 'unknown' {
+  const agent = navigator.userAgent
+  if (/iPhone|iPad|iPod/u.test(agent)) return 'ios'
+  // iPadOSはMacを名乗るため、タッチの有無で見分ける。
+  if (/Macintosh/u.test(agent) && navigator.maxTouchPoints > 1) return 'ios'
+  if (/Android/u.test(agent)) return 'android'
+  return 'unknown'
+}
+/** ホーム画面版として開いているか。共有の手順は開き方でも変わる。 */
+function isStandalone(): boolean {
+  return (
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  )
+}
 type ModalState =
   | { type: 'recipe'; recipe?: Recipe; shared?: SharedLink }
   | { type: 'detail'; id: string }
@@ -129,6 +154,7 @@ function PhotoInput({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const full = photos.length >= 12
   return (
     <div className="photo-input">
       <span className="field-label">{label}</span>
@@ -158,14 +184,16 @@ function PhotoInput({
           </div>
         ))}
       </div>
-      <label className={`secondary upload-label ${busy ? 'is-disabled' : ''}`}>
+      <label
+        className={`secondary upload-label ${busy ? 'is-disabled is-busy' : full ? 'is-disabled' : ''}`}
+      >
         <ImagePlus size={18} />
-        {busy ? '写真を準備中…' : '写真を選ぶ・撮る'}
+        {busy ? '写真を準備中…' : full ? '写真は12枚までです' : '写真を選ぶ・撮る'}
         <input
           type="file"
           accept="image/*"
           multiple
-          disabled={busy || photos.length >= 12}
+          disabled={busy || full}
           aria-label={label}
           onChange={async (event) => {
             const files = Array.from(event.target.files || [])
@@ -227,7 +255,39 @@ function RecipeForm({
   const [paperBusy, setPaperBusy] = useState(false)
   const [error, setError] = useState('')
   const [duplicate, setDuplicate] = useState<Recipe>()
+  const [lookup, setLookup] = useState<{ url: string; data: LinkMetadata }>()
+  const [looking, setLooking] = useState(false)
+  const lookupFor = useRef('')
   const pending = busy || photoBusy || paperBusy
+
+  // URLを入れた時点でタイトルを調べ、保存時に待たせない。結果はフォームに出して直せるようにする。
+  async function lookupMetadata(raw: string) {
+    let cleanUrl = ''
+    try {
+      cleanUrl = normalizeUrl(raw)
+    } catch {
+      return
+    }
+    if (lookupFor.current === cleanUrl) return
+    lookupFor.current = cleanUrl
+    setLooking(true)
+    try {
+      const data = await loadPreview(cleanUrl)
+      if (lookupFor.current !== cleanUrl) return
+      setLookup({ url: cleanUrl, data })
+      if (data.title) setTitle((current) => current || data.title)
+    } catch {
+      // 取得できなくてもURLは保存できる。
+    } finally {
+      if (lookupFor.current === cleanUrl) setLooking(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!initial && kind === 'link' && url) void lookupMetadata(url)
+    // 共有から渡されたURLは開いた時点で調べる。
+  }, [])
+
   async function submit(event: FormEvent) {
     event.preventDefault()
     setError('')
@@ -238,7 +298,10 @@ function RecipeForm({
       if (kind === 'link' && !cleanUrl) throw new Error('レシピのURLを入力してください。')
       const existing =
         kind === 'link'
-          ? recipes.find((recipe) => recipe.id !== initial?.id && recipe.url === cleanUrl)
+          ? recipes.find(
+              (recipe) =>
+                recipe.id !== initial?.id && duplicateKey(recipe.url) === duplicateKey(cleanUrl),
+            )
           : undefined
       if (existing) {
         setDuplicate(existing)
@@ -247,10 +310,14 @@ function RecipeForm({
       if (kind === 'paper' && !title.trim() && !paperPhotos.length)
         throw new Error('レシピ名を入力するか、レシピの画像を追加してください。')
       const now = new Date().toISOString()
-      const metadata =
-        kind === 'link' && (!title.trim() || !initial?.imageUrl)
-          ? await fetchLinkMetadata(cleanUrl)
-          : { title: '', imageUrl: '' }
+      // A changed URL invalidates the stored preview, so fetch it again for the new link.
+      const urlChanged = kind === 'link' && !!initial && cleanUrl !== initial.url
+      const needsMetadata = kind === 'link' && (!title.trim() || !initial?.imageUrl || urlChanged)
+      const metadata = !needsMetadata
+        ? { title: '', imageUrl: '' }
+        : lookup?.url === cleanUrl
+          ? lookup.data
+          : await loadPreview(cleanUrl)
       const recipe: Recipe = {
         id: initial?.id || newId(),
         kind,
@@ -263,9 +330,8 @@ function RecipeForm({
         paperPhotos: kind === 'paper' ? paperPhotos : [],
         logs: initial?.logs || [],
         favorite: initial?.favorite || false,
-        wantToCook: initial?.wantToCook || false,
         cooked: initial?.cooked || false,
-        imageUrl: initial?.imageUrl || metadata.imageUrl,
+        imageUrl: urlChanged ? metadata.imageUrl : initial?.imageUrl || metadata.imageUrl,
         createdAt: initial?.createdAt || now,
         updatedAt: now,
       }
@@ -319,10 +385,17 @@ function RecipeForm({
                   setUrl(event.target.value)
                   setDuplicate(undefined)
                 }}
+                onBlur={(event) => void lookupMetadata(event.target.value)}
                 placeholder="https://… または共有した文章"
                 maxLength={4000}
               />
-              <small>URLだけでも保存できます。</small>
+              <small>
+                {looking
+                  ? 'レシピ名を調べています…'
+                  : lookup && !lookup.data.title
+                    ? 'レシピ名は取得できませんでした。入力できます。'
+                    : 'URLだけでも保存できます。'}
+              </small>
             </div>
           ) : null}
           <details className="optional-fields" open>
@@ -429,7 +502,9 @@ function loadPreview(url: string, refresh = false): Promise<LinkMetadata> {
     const request = fetchLinkMetadata(url)
     previewRequests.set(url, request)
     request.then((metadata) => {
-      if (!metadata.imageUrl && previewRequests.get(url) === request) previewRequests.delete(url)
+      // 何も取れなかったときだけ捨てる。タイトルだけ取れた結果は保存時に使い回す。
+      if (!metadata.imageUrl && !metadata.title && previewRequests.get(url) === request)
+        previewRequests.delete(url)
     })
   }
   return previewRequests.get(url)!
@@ -703,6 +778,14 @@ export default function App() {
       return 'medium'
     }
   })
+  const [recipeOrder, setRecipeOrder] = useState<RecipeOrder>(() => {
+    try {
+      const saved = localStorage.getItem('hitosaji-recipe-order')
+      return saved === 'updated' || saved === 'title' ? saved : 'added'
+    } catch {
+      return 'added'
+    }
+  })
   const [modal, setModal] = useState<ModalState>(() => {
     const shared = takeSharedLink(window.location, window.history)
     return shared ? { type: 'recipe', shared } : null
@@ -714,6 +797,8 @@ export default function App() {
   const [updateReady, setUpdateReady] = useState(false)
   const [storage, setStorage] = useState<{ usage?: number; quota?: number }>()
   const [lastBackup, setLastBackup] = useState('')
+  const [platform] = useState(sharePlatform)
+  const [standalone] = useState(isStandalone)
   const channel = useRef<BroadcastChannel | null>(null)
   async function refresh() {
     try {
@@ -797,12 +882,24 @@ export default function App() {
       localStorage.setItem('hitosaji-card-size', layout)
     } catch {}
   }
-  const filtered = recipes.filter(
-    (recipe) =>
-      matchesRecipe(recipe, query) &&
-      (!filters.cooked || recipe.cooked) &&
-      (!filters.favorites || recipe.favorite),
-  )
+  function changeRecipeOrder(order: RecipeOrder) {
+    setRecipeOrder(order)
+    try {
+      localStorage.setItem('hitosaji-recipe-order', order)
+    } catch {}
+  }
+  const filtered = recipes
+    .filter(
+      (recipe) =>
+        matchesRecipe(recipe, query) &&
+        (!filters.cooked || recipe.cooked) &&
+        (!filters.favorites || recipe.favorite),
+    )
+    .sort((a, b) => {
+      if (recipeOrder === 'title') return titleOf(a).localeCompare(titleOf(b), 'ja')
+      if (recipeOrder === 'updated') return b.updatedAt.localeCompare(a.updatedAt)
+      return b.createdAt.localeCompare(a.createdAt)
+    })
   const allRecipesSelected = !filters.cooked && !filters.favorites
   const filteredTitle = allRecipesSelected
     ? '集めたレシピ'
@@ -961,6 +1058,18 @@ export default function App() {
                       {filteredTitle}
                       <span>{filtered.length}</span>
                     </h1>
+                    <select
+                      className="order-select"
+                      aria-label="並び替え"
+                      value={recipeOrder}
+                      onChange={(event) => changeRecipeOrder(event.target.value as RecipeOrder)}
+                    >
+                      {(Object.keys(ORDER_LABELS) as RecipeOrder[]).map((order) => (
+                        <option key={order} value={order}>
+                          {ORDER_LABELS[order]}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   {filtered.length ? (
                     <div className={`recipe-grid ${recipeLayout}`}>
@@ -1077,10 +1186,11 @@ export default function App() {
                   </div>
                   <div className="settings-grid">
                     <section className="settings-card">
-                      <Grid2X2 className="setting-icon" />
-                      <h2>一覧の表示</h2>
-                      <p>カードの大きさ、またはリスト表示を選べます。</p>
-                      <div className="card-size-control" role="group" aria-label="一覧の表示">
+                      <div className="settings-card-head">
+                        <Grid2X2 className="setting-icon" aria-hidden="true" />
+                        <h2>一覧の見た目</h2>
+                      </div>
+                      <div className="card-size-control" role="group" aria-label="一覧の見た目">
                         <button
                           type="button"
                           className={recipeLayout === 'small' ? 'active' : ''}
@@ -1116,13 +1226,12 @@ export default function App() {
                       </div>
                     </section>
                     <section className="settings-card">
-                      <HardDrive className="setting-icon" />
-                      <h2>この端末内に保存しています</h2>
+                      <div className="settings-card-head">
+                        <HardDrive className="setting-icon" aria-hidden="true" />
+                        <h2>記録とバックアップ</h2>
+                      </div>
                       <p>
-                        レシピと写真は、今開いている「ひとさじ」の保存領域に保存されます。サーバーへの送信や、自動同期は行いません。
-                      </p>
-                      <p>
-                        ブラウザのデータ削除やプライベートブラウズでは、記録が失われる場合があります。定期的にバックアップを保存してください。
+                        記録はこの端末の中だけにあります。ブラウザのデータを消すと消えるので、ときどきバックアップを書き出してください。
                       </p>
                       <div className="storage-stats">
                         <span>
@@ -1135,101 +1244,147 @@ export default function App() {
                           <span>使用量 約{(storage.usage / 1024 / 1024).toFixed(1)} MB</span>
                         )}
                       </div>
-                      <p className="fineprint">
-                        同じ端末でも、ホーム画面版とブラウザ版、ChromeとSafari、アクセスするURLが異なる場合は保存先が分かれます。
-                      </p>
-                    </section>
-                    <section className="settings-card">
-                      <Download className="setting-icon" />
-                      <h2>バックアップ</h2>
-                      <p>レシピと写真を、ひとつのファイルに書き出します。</p>
-                      <button className="primary" disabled={busy} onClick={backup}>
-                        <Download size={18} />
-                        バックアップを書き出す
-                      </button>
-                      <p className="fineprint">
-                        {lastBackup
-                          ? `前回の書き出し操作：${dateLabel(lastBackup)}`
-                          : 'まだバックアップを書き出していません。'}
-                        <br />
-                        ダウンロード後にファイルが保存されたことを確認してください。
-                      </p>
                       <div className="settings-divider" />
-                      <h3>バックアップから取り込む</h3>
-                      <p>
-                        別の端末への移行にも使えます。同じIDのレシピは上書きせず、新しいレシピだけを追加します。
-                      </p>
-                      <label className={`secondary upload-label ${busy ? 'is-disabled' : ''}`}>
-                        <Upload size={18} />
-                        バックアップを選ぶ
-                        <input
-                          type="file"
-                          accept=".json,application/json"
-                          aria-label="バックアップを選ぶ"
-                          disabled={busy}
-                          onChange={async (event) => {
-                            const file = event.target.files?.[0]
-                            event.target.value = ''
-                            if (!file) return
-                            setBusy(true)
-                            setSettingsError('')
-                            try {
-                              setModal({
-                                type: 'restore',
-                                recipes: parseBackup(JSON.parse(await file.text())),
-                              })
-                            } catch (error) {
-                              setSettingsError(
-                                error instanceof SyntaxError
-                                  ? '読み取れないファイルです。「ひとさじ」のバックアップを選んでください。'
-                                  : friendlyError(error),
-                              )
-                            } finally {
-                              setBusy(false)
-                            }
-                          }}
-                        />
-                      </label>
+                      <div className="settings-action">
+                        <h3>書き出す</h3>
+                        <button className="primary" disabled={busy} onClick={backup}>
+                          <Download size={18} />
+                          バックアップを書き出す
+                        </button>
+                        <p className="fineprint">
+                          {lastBackup
+                            ? `前回の書き出し：${dateLabel(lastBackup)}`
+                            : 'まだ書き出していません。'}
+                        </p>
+                      </div>
+                      <div className="settings-action">
+                        <h3>取り込む</h3>
+                        <p>別の端末への移行にも使えます。同じレシピは上書きしません。</p>
+                        <label className={`secondary upload-label ${busy ? 'is-disabled' : ''}`}>
+                          <Upload size={18} />
+                          バックアップを選ぶ
+                          <input
+                            type="file"
+                            accept=".json,application/json"
+                            aria-label="バックアップを選ぶ"
+                            disabled={busy}
+                            onChange={async (event) => {
+                              const file = event.target.files?.[0]
+                              event.target.value = ''
+                              if (!file) return
+                              setBusy(true)
+                              setSettingsError('')
+                              try {
+                                setModal({
+                                  type: 'restore',
+                                  recipes: parseBackup(JSON.parse(await file.text())),
+                                })
+                              } catch (error) {
+                                setSettingsError(
+                                  error instanceof SyntaxError
+                                    ? '読み取れないファイルです。「ひとさじ」のバックアップを選んでください。'
+                                    : friendlyError(error),
+                                )
+                              } finally {
+                                setBusy(false)
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
                       {settingsError && (
                         <p className="error" role="alert">
                           {settingsError}
                         </p>
                       )}
+                      <details className="settings-note">
+                        <summary>記録が別々になったとき</summary>
+                        <p>
+                          ホーム画面版とブラウザ版、ChromeとSafari、開くURLが違うと、記録はそれぞれ別になります。ひとつにまとめるときは、残したいほうでバックアップを書き出して、もう一方で取り込んでください。
+                        </p>
+                      </details>
                     </section>
                     <section className="settings-card">
-                      <LinkIcon className="setting-icon" />
-                      <h2>iPhoneの共有から登録</h2>
+                      <div className="settings-card-head">
+                        <Share2 className="setting-icon" aria-hidden="true" />
+                        <h2>共有メニューから登録</h2>
+                      </div>
                       <p>
-                        ショートカットを使うと、SafariやChromeなどの「共有」からブラウザ版の登録画面へURLを送れます。ホーム画面版には登録されません。
+                        レシピのページを開いたまま「共有」から登録できます。URLをコピーして貼り付ける必要はありません。
                       </p>
-                      <a
-                        className="secondary"
-                        href={IOS_SHORTCUT_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        ショートカットを追加
-                        <ArrowUpRight size={18} aria-hidden="true" />
-                      </a>
-                      <p className="fineprint">
-                        iPhoneでリンクを開き、「ショートカットを入手」から追加してください。ホーム画面版に保存したい場合は、レシピのURLをコピーし、ホーム画面の「ひとさじ」で「追加」→「URLから」に貼り付けてください。
-                      </p>
+                      {platform !== 'android' && (
+                        <>
+                          {platform === 'unknown' && <p className="device-label">iPhone・iPad</p>}
+                          {standalone && platform === 'ios' ? (
+                            <p>
+                              いまのホーム画面版では使えません。SafariやChromeで「ひとさじ」を開くと、共有メニューから登録できます。
+                            </p>
+                          ) : (
+                            <>
+                              <p>
+                                SafariやChromeで見ているときに使えます。ショートカットを追加すると、「共有」から「ひとさじ」へレシピを送れます。
+                              </p>
+                              <a
+                                className="secondary"
+                                href={IOS_SHORTCUT_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                ショートカットを追加
+                                <ArrowUpRight size={18} aria-hidden="true" />
+                              </a>
+                              <p className="fineprint">
+                                リンクを開き、「ショートカットを入手」を押すと追加されます。送ったレシピはブラウザ版に届くため、ホーム画面版では受け取れません。
+                              </p>
+                            </>
+                          )}
+                        </>
+                      )}
+                      {platform !== 'ios' && (
+                        <>
+                          {platform === 'unknown' && <p className="device-label">Android</p>}
+                          <p>
+                            {standalone && platform === 'android'
+                              ? 'レシピのページで「共有」を開くと「ひとさじ」が出ます。ほかの準備は要りません。'
+                              : 'ホーム画面に追加すると、共有メニューに「ひとさじ」が出ます。ほかの準備は要りません。'}
+                          </p>
+                        </>
+                      )}
                     </section>
                     <section className="settings-card">
-                      <BookOpen className="setting-icon" />
-                      <h2>ホーム画面から、すぐに</h2>
+                      <div className="settings-card-head">
+                        <Smartphone className="setting-icon" aria-hidden="true" />
+                        <h2>アプリとして使う</h2>
+                      </div>
                       <p>
-                        ブラウザのメニューにある「インストール」や「ホーム画面に追加」から、アプリとして使えます。表示名や操作はブラウザによって異なります。
+                        {standalone
+                          ? 'いまホーム画面から開いています。'
+                          : platform === 'ios'
+                            ? 'Safariで「共有」→「ホーム画面に追加」を選ぶと、アプリと同じように開けます。'
+                            : platform === 'android'
+                              ? 'Chromeのメニューから「ホーム画面に追加」を選ぶと、アプリと同じように開けます。'
+                              : 'ブラウザのメニューから「インストール」や「ホーム画面に追加」を選ぶと、アプリと同じように開けます。'}
                       </p>
-                      <p className="fineprint">
-                        Chrome・Safari向け。外部レシピの閲覧には通信が必要です。
-                      </p>
+                      <p className="fineprint">登録したレシピは、通信がなくても見られます。</p>
+                      <div className="settings-caution">
+                        <p>
+                          ブラウザ側の記録は引き継がれません。先にバックアップを書き出して、ホーム画面版で取り込んでください。
+                        </p>
+                        {platform !== 'android' && (
+                          <p>
+                            {platform === 'ios' ? '' : 'iPhone・iPadでは、'}
+                            ホーム画面版から「共有メニューから登録」は使えません。
+                          </p>
+                        )}
+                      </div>
                     </section>
                     <section className="settings-card">
-                      <Leaf className="setting-icon" />
-                      <h2>作り手への、ひとさじの敬意</h2>
+                      <div className="settings-card-head">
+                        <Leaf className="setting-icon" aria-hidden="true" />
+                        <h2>このアプリについて</h2>
+                      </div>
                       <p>
-                        外部のレシピは、元のサイトを開いて読みます。作り方の全文や動画は、このレシピ帳に取り込みません。
+                        外部のレシピは元のサイトを開いて読みます。作り方や動画は取り込みません。
                       </p>
                       <p className="fineprint">ひとさじ v0.1 · 個人のためのレシピ帳</p>
                     </section>

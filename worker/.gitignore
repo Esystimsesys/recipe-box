@@ -1,0 +1,4 @@
+node_modules/
+.wrangler/
+# `npm run types` で生成する（60万文字あるため追跡しない）
+worker-configuration.d.ts

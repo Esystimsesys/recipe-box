@@ -1,3 +1,5 @@
+const LINK_METADATA_ENDPOINT = import.meta.env.VITE_LINK_METADATA_ENDPOINT || ''
+
 /** Public OGP image URL used by Cookpad's recipe pages. No recipe HTML or images are copied. */
 export function cookpadPreviewUrl(url: string): string {
   try {
@@ -173,7 +175,34 @@ async function fetchXPost(url: string): Promise<LinkMetadata> {
   }
 }
 
+/**
+ * 多くのレシピサイトは CORS ヘッダーを返さないため、ブラウザからは og:title を読めない。
+ * 自前の取得用エンドポイント（worker/ を参照）が設定されていればそこへ問い合わせる。
+ * 未設定なら従来どおり直接読みにいき、読めなければタイトルなしで保存を続ける。
+ */
+export function metadataProxyUrl(url: string, endpoint = LINK_METADATA_ENDPOINT): string {
+  if (!endpoint) return ''
+  try {
+    const target = new URL(endpoint)
+    if (target.protocol !== 'https:' && target.hostname !== 'localhost') return ''
+    target.searchParams.set('url', url)
+    return target.toString()
+  } catch {
+    return ''
+  }
+}
+
+async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkMetadata> {
+  const response = await request(proxyUrl)
+  if (!response.ok) throw new Error('ページ情報を取得できませんでした。')
+  const data = (await response.json()) as { title?: unknown; imageUrl?: unknown }
+  return { title: cleanText(data.title), imageUrl: safeImageUrl(data.imageUrl, sourceUrl) }
+}
+
 async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
+  const proxyUrl = metadataProxyUrl(url)
+  if (proxyUrl) return await fetchViaProxy(proxyUrl, url)
+
   const response = await request(url)
   if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
     throw new Error('ページ情報を取得できませんでした。')

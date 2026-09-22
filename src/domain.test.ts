@@ -4,6 +4,7 @@ import {
   matchesRecipe,
   normalizeIngredient,
   normalizeStoredRecipe,
+  duplicateKey,
   normalizeUrl,
   parseBackup,
   parseIngredients,
@@ -30,7 +31,6 @@ const sampleRecipe = (overrides: Partial<Recipe> = {}): Recipe => ({
     },
   ],
   favorite: true,
-  wantToCook: false,
   cooked: true,
   imageUrl: '',
   createdAt: '2026-09-20T01:02:03.000Z',
@@ -85,6 +85,26 @@ describe('sourceLabel', () => {
   })
 })
 
+describe('duplicateKey', () => {
+  it('計測用のパラメーターを外し、同じレシピを同じ見分け方にする', () => {
+    expect(duplicateKey('https://example.com/r?id=7&utm_source=line&ref=share')).toBe(
+      duplicateKey('https://example.com/r?id=7'),
+    )
+    expect(duplicateKey('https://example.com/r?a=1&b=2')).toBe(
+      duplicateKey('https://example.com/r?b=2&a=1'),
+    )
+  })
+
+  it('意味のあるパラメーターとフラグメントは残す', () => {
+    expect(duplicateKey('https://example.com/r?id=7')).not.toBe(
+      duplicateKey('https://example.com/r?id=8'),
+    )
+    expect(duplicateKey('https://example.com/r#step-2')).not.toBe(
+      duplicateKey('https://example.com/r#step-3'),
+    )
+  })
+})
+
 describe('ingredient search', () => {
   it('表記ゆれを正規化し、順序を保って重複を除く', () => {
     expect(normalizeIngredient(' タマネギ ')).toBe('玉ねぎ')
@@ -113,6 +133,19 @@ describe('ingredient search', () => {
     expect(matchesRecipe(recipe, '鶏')).toBe(true)
     expect(matchesRecipe(recipe, '鶏 タマネギ')).toBe(true)
     expect(matchesRecipe(recipe, '鶏 じゃがいも')).toBe(false)
+  })
+
+  it('ひらがな・カタカナ・半角カタカナを同じ読みとして検索する', () => {
+    const recipe = sampleRecipe({
+      title: 'チキンカレー',
+      ingredients: ['じゃがいも'],
+      note: 'スパイスを使う',
+    })
+    expect(matchesRecipe(recipe, 'ちきんかれー じゃがいも')).toBe(true)
+    expect(matchesRecipe(recipe, 'ﾁｷﾝｶﾚｰ ジャガイモ')).toBe(true)
+    expect(matchesRecipe(recipe, 'すぱいす')).toBe(true)
+    expect(matchesRecipe(recipe, '', ['ジャガイモ'])).toBe(true)
+    expect(matchesRecipe(recipe, 'ちきん シチュー')).toBe(false)
   })
 })
 
@@ -169,7 +202,14 @@ describe('backup validation', () => {
     expect(restored.cooked).toBe(true)
     expect(restored.imageUrl).toBe('')
     expect(restored.logs).toEqual(old.logs)
-    expect(restored.wantToCook).toBe(old.wantToCook)
+  })
+
+  it('旧バージョンが書いた wantToCook は読み飛ばし、書き出しに含めない', () => {
+    const stored = { ...sampleRecipe(), wantToCook: true }
+    const [restored] = parseBackup({ format: 'recipe-box', version: 2, recipes: [stored] })
+
+    expect(restored).not.toHaveProperty('wantToCook')
+    expect(exportBackup([restored]).recipes[0]).not.toHaveProperty('wantToCook')
   })
 
   it('v2の画像URLは認証情報なしのHTTPSだけを許可する', () => {
@@ -196,6 +236,22 @@ describe('stored recipe migration', () => {
     expect(migrated.cooked).toBe(true)
     expect(migrated.updatedAt).toBe('2026-09-21T13:05:06+09:00')
     expect(migrated.logs).toEqual(old.logs)
+  })
+
+  it('古い版で保存したリンクの出典名を現在の表示名に直す', () => {
+    const stored = sampleRecipe({
+      kind: 'link',
+      url: 'https://www.kurashiru.com/recipes/226cd24c-6fb1-4102-b6b5-ba1357825a35',
+      source: 'kurashiru.com',
+    })
+
+    expect(normalizeStoredRecipe(stored).source).toBe('クラシル')
+  })
+
+  it('手動登録の出典は利用者の入力のまま残す', () => {
+    const stored = sampleRecipe({ kind: 'paper', url: '', source: '祖母のノート' })
+
+    expect(normalizeStoredRecipe(stored).source).toBe('祖母のノート')
   })
 
   it('明示的に未調理へ戻したv2レコードを旧ログから再導出しない', () => {

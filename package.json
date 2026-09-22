@@ -9,9 +9,11 @@
     "preview": "vite preview --port 5188 --strictPort",
     "test": "vitest run src",
     "test:e2e": "playwright test",
-    "format": "prettier --write src tests *.ts *.json index.html",
-    "format:check": "prettier --check src tests *.ts *.json index.html",
-    "icons": "node scripts/generate-icons.mjs"
+    "format": "prettier --write src tests worker/src *.ts *.json index.html",
+    "format:check": "prettier --check src tests worker/src *.ts *.json index.html",
+    "icons": "node scripts/generate-icons.mjs",
+    "worker:dev": "npm --prefix worker run dev",
+    "worker:deploy": "npm --prefix worker run deploy"
   },
   "dependencies": {
     "idb": "^8.0.3",

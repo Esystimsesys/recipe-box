@@ -3,9 +3,14 @@ import { readFile } from 'node:fs/promises'
 import { resolve, extname } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { test, expect } from '@playwright/test'
+import { routeLinkMetadata } from './link-metadata'
 
 // Stop a real, isolated origin instead of setOffline: macOS WebKit's emulation
 // rejects navigations even when the active service worker has a cached response.
+test.beforeEach(async ({ page }) => {
+  await routeLinkMetadata(page)
+})
+
 test('PWAの配信元を停止しても再表示・端末内の編集ができる', async ({ page, context }) => {
   const root = resolve('dist')
   const types: Record<string, string> = {
@@ -109,6 +114,7 @@ test('別タブで更新された内容を古い編集フォームが上書き�
   await page.getByRole('button', { name: '編集', exact: true }).click()
   await page.getByLabel('レシピ名', { exact: true }).fill('古い画面の編集')
   const second = await context.newPage()
+  await routeLinkMetadata(second)
   await second.goto('/')
   await second.getByRole('button', { name: '元のレシピを開く' }).click()
   await second.getByRole('button', { name: '編集', exact: true }).click()

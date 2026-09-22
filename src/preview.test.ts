@@ -5,6 +5,7 @@ import {
   fetchLinkMetadata,
   instagramEmbedUrl,
   kurashiruPreviewUrl,
+  metadataProxyUrl,
   oEmbedUrl,
   previewUrlExpiresSoon,
 } from './preview'
@@ -124,5 +125,27 @@ describe('direct previews', () => {
       'https://www.instagram.com/p/abc123/embed/',
     )
     expect(instagramEmbedUrl('https://evilinstagram.com/p/abc123/')).toBe('')
+  })
+})
+
+describe('metadataProxyUrl', () => {
+  const endpoint = 'https://link-metadata.example.workers.dev/'
+
+  it('取得エンドポイントに対象URLを付けて渡す', () => {
+    expect(metadataProxyUrl('https://www.kurashiru.com/recipes/abc?x=1#y', endpoint)).toBe(
+      'https://link-metadata.example.workers.dev/?url=https%3A%2F%2Fwww.kurashiru.com%2Frecipes%2Fabc%3Fx%3D1%23y',
+    )
+  })
+
+  it('エンドポイント未設定なら自動取得を行わない', () => {
+    expect(metadataProxyUrl('https://www.kurashiru.com/recipes/abc', '')).toBe('')
+  })
+
+  it('localhost以外の平文HTTPや壊れたエンドポイントは使わない', () => {
+    expect(metadataProxyUrl('https://example.com/a', 'http://metadata.example.com/')).toBe('')
+    expect(metadataProxyUrl('https://example.com/a', 'not a url')).toBe('')
+    expect(metadataProxyUrl('https://example.com/a', 'http://localhost:8787/')).toBe(
+      'http://localhost:8787/?url=https%3A%2F%2Fexample.com%2Fa',
+    )
   })
 })

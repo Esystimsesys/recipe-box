@@ -1,4 +1,9 @@
 import { defineConfig } from '@playwright/test'
+import { loadEnv } from 'vite'
+
+// ビルドと同じ .env を読み、テストから取得用エンドポイントの有無を判断できるようにする。
+const env = loadEnv('production', process.cwd(), '')
+process.env.VITE_LINK_METADATA_ENDPOINT ||= env.VITE_LINK_METADATA_ENDPOINT ?? ''
 
 export default defineConfig({
   testDir: './tests',
