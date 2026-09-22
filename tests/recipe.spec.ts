@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { devices, expect, test, type Locator, type Page } from '@playwright/test'
+import { METADATA_ENDPOINT, routeLinkMetadata } from './link-metadata'
 
 const BASE_URL = 'http://localhost:5190'
 const PIXEL_PNG = Buffer.from(
@@ -8,6 +9,10 @@ const PIXEL_PNG = Buffer.from(
 )
 
 const image = (name: string) => ({ name, mimeType: 'image/png', buffer: PIXEL_PNG })
+
+test.beforeEach(async ({ page }) => {
+  await routeLinkMetadata(page)
+})
 
 async function openApp(page: Page) {
   await page.goto('/')
@@ -205,6 +210,7 @@ test('バックアップを別コンテキストへ復元し、重複を上書�
 }) => {
   const sourceContext = await browser.newContext()
   const source = await sourceContext.newPage()
+  await routeLinkMetadata(source)
   await source.goto(BASE_URL)
   await expect(source.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
   await addLinkRecipe(source)
@@ -225,6 +231,7 @@ test('バックアップを別コンテキストへ復元し、重複を上書�
 
   const restoreContext = await browser.newContext()
   const restored = await restoreContext.newPage()
+  await routeLinkMetadata(restored)
   await restored.goto(BASE_URL)
   await expect(restored.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
   await openSettings(restored)
@@ -347,6 +354,135 @@ test('YouTubeのURLからタイトルとプレビュー画像を取得する', a
   await expect(page.getByRole('img', { name: 'フライパンで作る簡単レシピ' })).toHaveAttribute(
     'src',
     'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+  )
+})
+
+test('取得用エンドポイントからレシピ名を受け取って登録する', async ({ page }) => {
+  test.skip(!METADATA_ENDPOINT, 'VITE_LINK_METADATA_ENDPOINT が未設定のビルドでは自動取得しない')
+  const recipeUrl = 'https://www.kurashiru.com/recipes/226cd24c-6fb1-4102-b6b5-ba1357825a35'
+  let requestedTarget = ''
+  await page.route(`${new URL(METADATA_ENDPOINT).origin}/**`, async (route) => {
+    requestedTarget = new URL(route.request().url()).searchParams.get('url') || ''
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ title: '焼き鳥缶で簡単炊き込みご飯 作り方・レシピ', imageUrl: '' }),
+    })
+  })
+  await page.route('https://video.kurashiru.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG }),
+  )
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill(recipeUrl)
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(
+    page
+      .getByRole('dialog', { name: 'レシピ' })
+      .getByRole('heading', { name: '焼き鳥缶で簡単炊き込みご飯 作り方・レシピ' }),
+  ).toBeVisible()
+  expect(requestedTarget).toBe(recipeUrl)
+  await closeDialog(page, 'レシピ')
+  await expect(
+    page.getByRole('button', { name: /焼き鳥缶で簡単炊き込みご飯.*を開く/ }),
+  ).toBeVisible()
+})
+
+test('URLを入れた時点でレシピ名を取り込み、保存前に直せる', async ({ page }) => {
+  test.skip(!METADATA_ENDPOINT, 'VITE_LINK_METADATA_ENDPOINT が未設定のビルドでは自動取得しない')
+  await routeLinkMetadata(page, { title: '肉じゃがの基本レシピ', imageUrl: '' })
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://www.sirogohan.com/recipe/nikujaga/')
+  await dialog.getByLabel('レシピ名').click()
+  await expect(dialog.getByLabel('レシピ名')).toHaveValue('肉じゃがの基本レシピ')
+
+  await dialog.getByLabel('レシピ名').fill('肉じゃが（週末用）')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(
+    page
+      .getByRole('dialog', { name: 'レシピ' })
+      .getByRole('heading', { name: '肉じゃが（週末用）' }),
+  ).toBeVisible()
+})
+
+test('計測用のパラメーターが違うだけのURLを重複として扱う', async ({ page }) => {
+  await openApp(page)
+  const first = await openNewRecipe(page)
+  await first.getByLabel('レシピのURL').fill('https://example.com/recipe?id=7')
+  await first.getByLabel('レシピ名').fill('重複のもと')
+  await first.getByRole('button', { name: '保存する' }).click()
+  await closeDialog(page, 'レシピ')
+
+  const second = await openNewRecipe(page)
+  await second
+    .getByLabel('レシピのURL')
+    .fill('https://example.com/recipe?id=7&utm_source=line&ref=x')
+  await second.getByRole('button', { name: '保存する' }).click()
+  await expect(second.getByRole('alert')).toContainText('登録済み')
+  await second.getByRole('button', { name: '登録済みのレシピを開く' }).click()
+  await expect(
+    page.getByRole('dialog', { name: 'レシピ' }).getByRole('heading', { name: '重複のもと' }),
+  ).toBeVisible()
+})
+
+test('一覧の並び替えを切り替え、再読み込み後も残す', async ({ page }) => {
+  await openApp(page)
+  for (const [name, url] of [
+    ['あんかけ豆腐', 'https://example.com/a'],
+    ['ざる蕎麦', 'https://example.com/b'],
+  ]) {
+    const dialog = await openNewRecipe(page)
+    await dialog.getByLabel('レシピのURL').fill(url)
+    await dialog.getByLabel('レシピ名').fill(name)
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    await closeDialog(page, 'レシピ')
+  }
+  const titles = page.locator('.recipe-card .card-title')
+  await expect(titles).toHaveText(['ざる蕎麦', 'あんかけ豆腐'])
+
+  await page.getByLabel('並び替え').selectOption('title')
+  await expect(titles).toHaveText(['あんかけ豆腐', 'ざる蕎麦'])
+  await page.reload()
+  await expect(page.getByLabel('並び替え')).toHaveValue('title')
+  await expect(titles).toHaveText(['あんかけ豆腐', 'ざる蕎麦'])
+})
+
+test('リンクのURLを変えると、プレビュー画像を取り直す', async ({ page }) => {
+  await page.route('https://www.youtube.com/oembed?**', async (route) => {
+    const target = new URL(new URL(route.request().url()).searchParams.get('url') || '')
+    const id = target.searchParams.get('v') || target.pathname.slice(1)
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        title: `動画 ${id}`,
+        thumbnail_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      }),
+    })
+  })
+  await page.route('https://i.ytimg.com/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL_PNG })
+  })
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://www.youtube.com/watch?v=aaa111')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  const detail = page.getByRole('dialog', { name: 'レシピ' })
+  await expect(detail.getByRole('heading', { name: '動画 aaa111' })).toBeVisible()
+
+  await detail.getByRole('button', { name: '編集' }).click()
+  const edit = page.getByRole('dialog', { name: 'レシピを編集' })
+  await edit.getByLabel('レシピのURL').fill('https://www.youtube.com/watch?v=bbb222')
+  await edit.getByRole('button', { name: '保存する' }).click()
+  await expect(detail.getByRole('link', { name: '元のレシピを見る' })).toHaveAttribute(
+    'href',
+    'https://www.youtube.com/watch?v=bbb222',
+  )
+  await closeDialog(page, 'レシピ')
+  await expect(page.getByRole('img', { name: '動画 aaa111' })).toHaveAttribute(
+    'src',
+    'https://i.ytimg.com/vi/bbb222/hqdefault.jpg',
   )
 })
 
@@ -476,6 +612,7 @@ test('保存済みで画像が空のX投稿を再表示時に取得する', asyn
 })
 
 test('保存済みのクラシル画像URLが壊れていても公開画像へ切り替える', async ({ page }) => {
+  await routeLinkMetadata(page, { title: '', imageUrl: 'https://images.example.com/old.jpg' })
   await page.route('https://www.kurashiru.com/recipes/**', (route) =>
     route.fulfill({
       status: 200,
@@ -532,6 +669,81 @@ test('上部のブランドからトップへ戻り、設定を開閉できる',
   await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
 })
 
+test.describe('共有の手順は端末に合わせて出し分ける', () => {
+  const shortcut = { name: 'ショートカットを追加' }
+
+  test('iPhoneではショートカットの手順だけ出す', async ({ browser }) => {
+    const context = await browser.newContext({ ...devices['iPhone 14'], isMobile: undefined })
+    const page = await context.newPage()
+    await routeLinkMetadata(page)
+    await openApp(page)
+    await openSettings(page)
+    await expect(page.getByRole('link', shortcut)).toBeVisible()
+    await expect(page.getByText('ホーム画面に追加すると、共有メニューに')).toHaveCount(0)
+    await context.close()
+  })
+
+  test('Androidではショートカットを出さない', async ({ browser }) => {
+    const context = await browser.newContext({ ...devices['Pixel 7'], isMobile: undefined })
+    const page = await context.newPage()
+    await routeLinkMetadata(page)
+    await openApp(page)
+    await openSettings(page)
+    await expect(page.getByRole('link', shortcut)).toHaveCount(0)
+    await expect(page.getByText('ホーム画面に追加すると、共有メニューに')).toBeVisible()
+    await context.close()
+  })
+
+  test('iPhoneのホーム画面版では使えないことを伝える', async ({ browser }) => {
+    const context = await browser.newContext({ ...devices['iPhone 14'], isMobile: undefined })
+    await context.addInitScript(() =>
+      Object.defineProperty(navigator, 'standalone', { value: true }),
+    )
+    const page = await context.newPage()
+    await routeLinkMetadata(page)
+    await openApp(page)
+    await openSettings(page)
+    await expect(page.getByText('いまのホーム画面版では使えません')).toBeVisible()
+    await expect(page.getByRole('link', shortcut)).toHaveCount(0)
+    await context.close()
+  })
+
+  test('Androidでは共有が使えない注意書きを出さない', async ({ browser }) => {
+    const context = await browser.newContext({ ...devices['Pixel 7'], isMobile: undefined })
+    const page = await context.newPage()
+    await routeLinkMetadata(page)
+    await openApp(page)
+    await openSettings(page)
+    const caution = page.locator('.settings-caution')
+    await expect(caution).toContainText('先にバックアップを書き出して')
+    await expect(caution).not.toContainText('共有メニューから登録」は使えません')
+    await context.close()
+  })
+
+  test('共有の案内は「アプリとして使う」とは別のカードに置く', async ({ page }) => {
+    await openApp(page)
+    await openSettings(page)
+    const appCard = page
+      .locator('.settings-card')
+      .filter({ has: page.getByRole('heading', { name: 'アプリとして使う' }) })
+    await expect(appCard.getByRole('link', shortcut)).toHaveCount(0)
+    await expect(
+      page
+        .locator('.settings-card')
+        .filter({ has: page.getByRole('heading', { name: '共有メニューから登録' }) }),
+    ).toHaveCount(1)
+  })
+
+  test('判別できない端末では両方を見出し付きで並べる', async ({ page }) => {
+    await openApp(page)
+    await openSettings(page)
+    await expect(page.getByText('iPhone・iPad', { exact: true })).toBeVisible()
+    await expect(page.getByText('Android', { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', shortcut)).toBeVisible()
+    await expect(page.getByText('ホーム画面に追加すると、共有メニューに')).toBeVisible()
+  })
+})
+
 test('スマホで小表示を2列にし、リスト表示へ切り替えられる', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openApp(page)
@@ -539,7 +751,7 @@ test('スマホで小表示を2列にし、リスト表示へ切り替えられ�
   await closeDialog(page, 'レシピ')
 
   await openSettings(page)
-  const displayControl = page.getByRole('group', { name: '一覧の表示' })
+  const displayControl = page.getByRole('group', { name: '一覧の見た目' })
   await expect(displayControl.getByRole('button')).toHaveText(['小', '中', '大', 'リスト'])
   await expect(displayControl.getByRole('button', { name: '中', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -558,7 +770,7 @@ test('スマホで小表示を2列にし、リスト表示へ切り替えられ�
 
   await openSettings(page)
   await page
-    .getByRole('group', { name: '一覧の表示' })
+    .getByRole('group', { name: '一覧の見た目' })
     .getByRole('button', { name: 'リスト', exact: true })
     .click()
   await page.getByRole('link', { name: 'ひとさじ トップへ' }).click()

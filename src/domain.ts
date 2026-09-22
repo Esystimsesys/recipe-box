@@ -23,7 +23,6 @@ export type Recipe = {
   paperPhotos: Photo[]
   logs: CookLog[]
   favorite: boolean
-  wantToCook: boolean
   cooked: boolean
   imageUrl?: string
   createdAt: string
@@ -118,6 +117,39 @@ export function normalizeUrl(input: string): string {
   return parsed.toString()
 }
 
+/**
+ * 重複判定にだけ使う見分け方。計測用のパラメーターは同じレシピを別物にしてしまうため落とす。
+ * 保存するURLは元のまま残す（クエリやフラグメントに意味があり得るため）。
+ */
+const TRACKING_PARAMS = [
+  'fbclid',
+  'gclid',
+  'dclid',
+  'msclkid',
+  'yclid',
+  'igshid',
+  'mc_cid',
+  'mc_eid',
+  'ref',
+  'ref_src',
+  'ref_url',
+  '_ga',
+]
+
+export function duplicateKey(url: string): string {
+  try {
+    const parsed = new URL(url)
+    for (const key of [...parsed.searchParams.keys()]) {
+      const name = key.toLowerCase()
+      if (name.startsWith('utm_') || TRACKING_PARAMS.includes(name)) parsed.searchParams.delete(key)
+    }
+    parsed.searchParams.sort()
+    return parsed.toString()
+  } catch {
+    return url
+  }
+}
+
 export function sourceLabel(url: string): string {
   const hostname = new URL(normalizeUrl(url)).hostname.toLowerCase().replace(/^www\./u, '')
   if (
@@ -151,7 +183,11 @@ export function parseIngredients(input: string): string[] {
 }
 
 function normalizeSearchText(value: string): string {
-  return value.normalize('NFKC').trim().toLocaleLowerCase('ja-JP')
+  return value
+    .normalize('NFKC')
+    .trim()
+    .toLocaleLowerCase('ja-JP')
+    .replace(/[ァ-ヶ]/gu, (kana) => String.fromCharCode(kana.charCodeAt(0) - 0x60))
 }
 
 export function matchesRecipe(recipe: Recipe, query: string, ingredients: string[] = []): boolean {
@@ -162,16 +198,20 @@ export function matchesRecipe(recipe: Recipe, query: string, ingredients: string
   const searchableValues = [recipe.title, recipe.note, recipe.source, ...recipe.ingredients].map(
     normalizeSearchText,
   )
-  const recipeIngredients = recipe.ingredients.map(normalizeIngredient)
+  const recipeIngredients = recipe.ingredients.map((value) =>
+    normalizeSearchText(normalizeIngredient(value)),
+  )
   const textMatches = terms.every(
     (term) =>
       searchableValues.some((value) => value.includes(term)) ||
-      recipeIngredients.some((ingredient) => ingredient.includes(normalizeIngredient(term))),
+      recipeIngredients.some((ingredient) =>
+        ingredient.includes(normalizeSearchText(normalizeIngredient(term))),
+      ),
   )
 
   if (!textMatches) return false
   return ingredients
-    .map(normalizeIngredient)
+    .map((ingredient) => normalizeSearchText(normalizeIngredient(ingredient)))
     .filter(Boolean)
     .every((ingredient) =>
       recipeIngredients.some((recipeIngredient) => recipeIngredient.includes(ingredient)),
@@ -438,6 +478,7 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
       'paperPhotos',
       'logs',
       'favorite',
+      // 旧バージョンが書いた項目。読み飛ばすだけで、新しいバックアップには含めない。
       'wantToCook',
       ...(version === 2 ? ['cooked', 'imageUrl'] : []),
       'createdAt',
@@ -483,7 +524,6 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
     paperPhotos: readPhotosArray(value.paperPhotos, `${path}.paperPhotos`),
     logs,
     favorite: readBoolean(value.favorite, `${path}.favorite`),
-    wantToCook: readBoolean(value.wantToCook, `${path}.wantToCook`),
     cooked: version === 1 ? logs.length > 0 : readBoolean(value.cooked, `${path}.cooked`),
     imageUrl: version === 1 ? '' : readImageUrl(value.imageUrl, `${path}.imageUrl`),
     createdAt: readIsoDate(value.createdAt, `${path}.createdAt`),
@@ -525,5 +565,7 @@ export function normalizeStoredRecipe(input: unknown): Recipe {
   const recipe = parseBackup({ format: 'recipe-box', version, recipes: [input] })[0]
   // Optimistic concurrency compares this exact stored token. Migration must not rewrite it.
   recipe.updatedAt = readString(input.updatedAt, 'recipe.updatedAt', 64, false)
+  // 出典名は版ごとに増えるため、リンクはURLから引き直す。手動登録の出典は利用者の入力なので触らない。
+  if (recipe.kind === 'link' && recipe.url) recipe.source = sourceLabel(recipe.url)
   return recipe
 }

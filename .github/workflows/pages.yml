@@ -12,6 +12,10 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  # リンクのタイトル取得用エンドポイント（worker/ を参照）。公開URLなので秘密情報ではない。
+  LINK_METADATA_ENDPOINT: https://hitosaji-link-metadata.esystimsesys.workers.dev/
+
 jobs:
   build:
     runs-on: macos-latest
@@ -25,12 +29,17 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+        env:
+          VITE_LINK_METADATA_ENDPOINT: ${{ env.LINK_METADATA_ENDPOINT }}
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+        env:
+          VITE_LINK_METADATA_ENDPOINT: ${{ env.LINK_METADATA_ENDPOINT }}
       - name: Build for repository path
         run: npm run build
         env:
           BASE_PATH: /recipe-box/
+          VITE_LINK_METADATA_ENDPOINT: ${{ env.LINK_METADATA_ENDPOINT }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist

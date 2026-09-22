@@ -26,7 +26,6 @@ const recipe = (
   paperPhotos: [],
   logs: [],
   favorite,
-  wantToCook: false,
   cooked,
   imageUrl: '',
   createdAt,

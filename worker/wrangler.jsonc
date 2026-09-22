@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hitosaji-link-metadata",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-22",
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 }
+  },
+  "vars": {
+    // 「ひとさじ」を配信するオリジン。ここに無いサイトからのブラウザ要求は拒否する。
+    // 非公開の検証用オリジンは `wrangler secret put DEV_ALLOWED_ORIGIN` で足す（設定ファイルには書かない）。
+    "ALLOWED_ORIGINS": "https://esystimsesys.github.io,http://localhost:5188,http://localhost:5190"
+  }
+}

@@ -3,15 +3,15 @@
 「ひとさじ」は、気になるレシピと料理写真を自分の端末に保存する、個人向けのレシピ管理PWAです。
 
 - Web上のレシピURLや手元のレシピを保存
-- 取得可能なリンクはタイトルとプレビュー画像を自動入力
-- 名前・材料・メモ・出典から検索
+- リンクのタイトルとプレビュー画像を自動入力
+- 名前・材料・メモ・出典から検索、追加順・更新順・名前順で並び替え
 - 「作った」「お気に入り」で整理
 - 料理写真・メモを追加
 - 写真を含むJSONバックアップの書き出しと復元
 - インストール後のオフライン利用
 - Androidの共有メニューからURLを受け取り、確認して登録
 
-外部レシピの本文・動画は取り込みません。YouTubeやTikTokのoEmbed、クラシル公式レシピ（`/recipes/`）の公開サムネイル、Instagramの公開埋め込みを使ってプレビューを表示します。Xの公開投稿は[FxEmbedの公開API](https://github.com/FxEmbed/FxEmbed/blob/main/docs/src/content/docs/api/introduction.mdx)に投稿IDを送って画像URLを取得します。TikTokの画像URLが期限切れになった場合は再取得します。非公開・削除済みの投稿など、画像を取得できない場合もURLは保存でき、作り方は元サイトを開いて確認します。レシピ、料理写真、メモはブラウザのIndexedDBに保存され、アプリ独自のサーバーへの送信や自動同期は行いません。
+外部レシピの本文・動画は取り込みません。YouTubeやTikTokのoEmbed、クラシル公式レシピ（`/recipes/`）の公開サムネイル、Instagramの公開埋め込みを使ってプレビューを表示します。Xの公開投稿は[FxEmbedの公開API](https://github.com/FxEmbed/FxEmbed/blob/main/docs/src/content/docs/api/introduction.mdx)に投稿IDを送って画像URLを取得します。TikTokの画像URLが期限切れになった場合は再取得します。クラシルやCookpadのようにCORSヘッダーを返さないサイトのタイトルは、自前のCloudflare Worker（[worker/](worker/)）がページの`og:title`と`og:image`だけを読んで返します。非公開・削除済みの投稿など、画像やタイトルを取得できない場合もURLは保存でき、作り方は元サイトを開いて確認します。レシピ、料理写真、メモはブラウザのIndexedDBに保存され、アプリ独自のサーバーへの送信や自動同期は行いません。
 
 公開先：[GitHub Pages](https://esystimsesys.github.io/recipe-box/)
 リポジトリ：[Esystimsesys/recipe-box](https://github.com/Esystimsesys/recipe-box)
@@ -28,8 +28,11 @@ Node.js 24で確認しています。依存バージョンは `package-lock.json
 
 ```sh
 npm ci
+cp .env.example .env.local
 npm run dev
 ```
+
+`VITE_LINK_METADATA_ENDPOINT` はリンクのタイトルを取得するエンドポイントです。未設定でもURLは保存でき、タイトルの自動入力だけが行われません。
 
 開発時だけX・Instagram・TikTok・Cookpadのサンプルを各2件、既存データを上書きせず一度だけ追加します。削除したサンプルは自動復活しません。本番ビルドと公開版には含まれません。
 
@@ -54,6 +57,26 @@ GitHub Pages向けの本番ビルドではベースパスを指定します。
 ```sh
 BASE_PATH=/recipe-box/ npm run build
 ```
+
+## リンクのタイトル取得（Cloudflare Worker）
+
+レシピサイトの多くはCORSヘッダーを返さないため、ブラウザからは`og:title`を読めません。[worker/](worker/) の小さなWorkerがページを取得し、`og:title`と`og:image`だけをJSONで返します。ページ本文・手順・動画は読み取らず、保存もしません。
+
+- 参照元は `worker/wrangler.jsonc` の `ALLOWED_ORIGINS` と、tailnet（`*.ts.net`）のオリジンだけ許可します。Originは詐称できるため、これは認証ではなく無料枠を守るための目印です。
+- 取得先は公開DNS名のみで、IPアドレス・`.local`・`.internal`・`.ts.net` 宛ては拒否します。
+- 結果は6時間、取得元のHTMLは1時間キャッシュします。読み取りは512KBで打ち切ります。
+- Workerが落ちても、タイトルが入らないだけでURLの保存は続きます。
+
+```sh
+npm --prefix worker ci
+npm run worker:dev        # http://localhost:8787 で動かす
+npm run worker:deploy     # Cloudflareへ反映する
+npm --prefix worker run typecheck
+```
+
+`worker-configuration.d.ts` は `wrangler types` が生成するため追跡していません（`typecheck` が先に生成します）。
+
+Cloudflare Workersの無料枠（100,000リクエスト/日、CPU 10ms/リクエスト）で動きます。
 
 ## データとバックアップ
 
