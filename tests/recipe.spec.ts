@@ -827,3 +827,71 @@ test('危険なURLを保存せず、狭い画面と広い画面で横方向に�
     expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
   }
 })
+
+test('URLを変更したら古い自動タイトルを消し、手入力の名前は残す', async ({ page }) => {
+  await page.route('https://www.youtube.com/oembed**', (route) =>
+    route.fulfill({ json: { title: 'あ'.repeat(400) } }),
+  )
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  const url = dialog.getByLabel('レシピのURL')
+  const title = dialog.getByLabel('レシピ名')
+  await url.fill('https://youtu.be/first')
+  await title.focus()
+  await expect(title).toHaveValue('あ'.repeat(300))
+  await url.fill('https://youtu.be/second')
+  await expect(title).toHaveValue('')
+  await title.fill('自分のレシピ名')
+  await url.fill('https://youtu.be/third')
+  await expect(title).toHaveValue('自分のレシピ名')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(page.getByRole('dialog', { name: 'レシピ' })).toContainText('自分のレシピ名')
+})
+
+test('URLを書き換えた後に届いた古い取得結果を入力しない', async ({ page }) => {
+  let release!: () => void
+  const responseReady = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let requested!: () => void
+  const requestStarted = new Promise<void>((resolve) => {
+    requested = resolve
+  })
+  await page.route('https://www.youtube.com/oembed**', async (route) => {
+    requested()
+    await responseReady
+    await route.fulfill({ json: { title: '古いURLの名前' } })
+  })
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://youtu.be/stale')
+  await dialog.getByLabel('レシピ名').focus()
+  await requestStarted
+  await dialog.getByLabel('レシピのURL').fill('https://example.com/new')
+  const received = page.waitForResponse('https://www.youtube.com/oembed**')
+  release()
+  await received
+  // 後続の保存まで進め、古い結果がタイトルに混入しないことを確認する。
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(page.getByRole('dialog', { name: 'レシピ' })).not.toContainText('古いURLの名前')
+  await expect(page.getByRole('link', { name: '元のレシピを見る' })).toHaveAttribute(
+    'href',
+    'https://example.com/new',
+  )
+})
+
+test('長い共有URLは切断せず保存し、上限超過はエラーとして残す', async ({ page }) => {
+  const url = 'https://example.com/?token=' + 'a'.repeat(4020)
+  await page.goto('/?' + new URLSearchParams({ share_target: '1', url }))
+  let dialog = page.getByRole('dialog', { name: '追加' })
+  await expect(dialog.getByLabel('レシピのURL')).toHaveValue(url)
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(page.getByRole('link', { name: '元のレシピを見る' })).toHaveAttribute('href', url)
+  const tooLong = url + 'a'.repeat(100)
+  await page.goto('/?' + new URLSearchParams({ share_target: '1', url: tooLong }))
+  dialog = page.getByRole('dialog', { name: '追加' })
+  await expect(dialog.getByLabel('レシピのURL')).toHaveValue(tooLong)
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('4096')
+  await expect(dialog.getByLabel('レシピのURL')).toHaveValue(tooLong)
+})

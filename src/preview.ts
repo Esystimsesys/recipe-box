@@ -1,3 +1,5 @@
+import { RECIPE_LIMITS } from './domain'
+
 const LINK_METADATA_ENDPOINT = import.meta.env.VITE_LINK_METADATA_ENDPOINT || ''
 
 /** Public OGP image URL used by Cookpad's recipe pages. No recipe HTML or images are copied. */
@@ -82,7 +84,9 @@ export type LinkMetadata = {
 }
 
 function cleanText(value: unknown): string {
-  return typeof value === 'string' ? value.replace(/\s+/gu, ' ').trim().slice(0, 300) : ''
+  return typeof value === 'string'
+    ? value.replace(/\s+/gu, ' ').trim().slice(0, RECIPE_LIMITS.title)
+    : ''
 }
 
 function safeImageUrl(value: unknown, baseUrl: string): string {
@@ -113,24 +117,26 @@ export function oEmbedUrl(url: string): string {
   }
 }
 
-async function request(url: string): Promise<Response> {
+async function request<T>(url: string, read: (response: Response) => Promise<T>): Promise<T> {
   const controller = new AbortController()
   const timer = globalThis.setTimeout(() => controller.abort(), 5_000)
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       credentials: 'omit',
       referrerPolicy: 'strict-origin-when-cross-origin',
       signal: controller.signal,
     })
+    return await read(response)
   } finally {
     globalThis.clearTimeout(timer)
   }
 }
 
 async function fetchOEmbed(endpoint: string, sourceUrl: string): Promise<LinkMetadata> {
-  const response = await request(endpoint)
-  if (!response.ok) throw new Error('oEmbedを取得できませんでした。')
-  const data = (await response.json()) as { title?: unknown; thumbnail_url?: unknown }
+  const data = await request(endpoint, async (response) => {
+    if (!response.ok) throw new Error('oEmbedを取得できませんでした。')
+    return (await response.json()) as { title?: unknown; thumbnail_url?: unknown }
+  })
   return {
     title: cleanText(data.title),
     imageUrl: safeImageUrl(data.thumbnail_url, sourceUrl),
@@ -156,15 +162,16 @@ function xPostId(url: string): string {
 async function fetchXPost(url: string): Promise<LinkMetadata> {
   const id = xPostId(url)
   if (!id) throw new Error('Xの投稿URLではありません。')
-  const response = await request(`https://api.fxtwitter.com/2/status/${id}`)
-  if (!response.ok) throw new Error('Xの投稿情報を取得できませんでした。')
-  const data = (await response.json()) as {
-    code?: number
-    status?: {
-      text?: unknown
-      media?: { photos?: { url?: unknown }[]; videos?: { thumbnail_url?: unknown }[] }
+  const data = await request(`https://api.fxtwitter.com/2/status/${id}`, async (response) => {
+    if (!response.ok) throw new Error('Xの投稿情報を取得できませんでした。')
+    return (await response.json()) as {
+      code?: number
+      status?: {
+        text?: unknown
+        media?: { photos?: { url?: unknown }[]; videos?: { thumbnail_url?: unknown }[] }
+      }
     }
-  }
+  })
   if (data.code !== 200) throw new Error('Xの投稿情報を取得できませんでした。')
   return {
     title: cleanText(data.status?.text),
@@ -193,9 +200,10 @@ export function metadataProxyUrl(url: string, endpoint = LINK_METADATA_ENDPOINT)
 }
 
 async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkMetadata> {
-  const response = await request(proxyUrl)
-  if (!response.ok) throw new Error('ページ情報を取得できませんでした。')
-  const data = (await response.json()) as { title?: unknown; imageUrl?: unknown }
+  const data = await request(proxyUrl, async (response) => {
+    if (!response.ok) throw new Error('ページ情報を取得できませんでした。')
+    return (await response.json()) as { title?: unknown; imageUrl?: unknown }
+  })
   return { title: cleanText(data.title), imageUrl: safeImageUrl(data.imageUrl, sourceUrl) }
 }
 
@@ -203,11 +211,12 @@ async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
   const proxyUrl = metadataProxyUrl(url)
   if (proxyUrl) return await fetchViaProxy(proxyUrl, url)
 
-  const response = await request(url)
-  if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
-    throw new Error('ページ情報を取得できませんでした。')
-  }
-  const html = await response.text()
+  const html = await request(url, async (response) => {
+    if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
+      throw new Error('ページ情報を取得できませんでした。')
+    }
+    return await response.text()
+  })
   const document = new DOMParser().parseFromString(html, 'text/html')
   const meta = (selector: string) => document.querySelector<HTMLMetaElement>(selector)?.content
   return {

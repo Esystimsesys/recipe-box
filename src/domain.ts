@@ -43,7 +43,7 @@ const MAX_LOGS_PER_RECIPE = 2_000
 const MAX_INGREDIENTS = 200
 const MAX_DATA_URL_BYTES = 15 * 1024 * 1024
 
-const LIMITS = {
+export const RECIPE_LIMITS = {
   id: 128,
   title: 300,
   url: 4_096,
@@ -356,7 +356,7 @@ function readBoolean(value: unknown, path: string): boolean {
 
 function readImageUrl(value: unknown, path: string): string {
   if (value === undefined || value === '') return ''
-  const raw = readString(value, path, LIMITS.url, false).trim()
+  const raw = readString(value, path, RECIPE_LIMITS.url, false).trim()
   let parsed: URL
   try {
     parsed = new URL(raw)
@@ -409,7 +409,7 @@ function readLogDate(value: unknown, path: string): string {
 }
 
 function readId(value: unknown, path: string): string {
-  return readString(value, path, LIMITS.id, false).trim()
+  return readString(value, path, RECIPE_LIMITS.id, false).trim()
 }
 
 function assertUniqueIds(values: { id: string }[], path: string): void {
@@ -438,7 +438,7 @@ function readPhoto(value: unknown, path: string): Photo {
   return {
     id: readId(value.id, `${path}.id`),
     dataUrl: validateDataUrl(value.dataUrl, `${path}.dataUrl`),
-    name: readString(value.name, `${path}.name`, LIMITS.photoName),
+    name: readString(value.name, `${path}.name`, RECIPE_LIMITS.photoName),
   }
 }
 
@@ -457,7 +457,7 @@ function readLog(value: unknown, path: string): CookLog {
   return {
     id: readId(value.id, `${path}.id`),
     date: readLogDate(value.date, `${path}.date`),
-    note: readString(value.note, `${path}.note`, LIMITS.note),
+    note: readString(value.note, `${path}.note`, RECIPE_LIMITS.note),
     photos: readPhotosArray(value.photos, `${path}.photos`),
   }
 }
@@ -495,7 +495,7 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
     throw new Error(`${path}.ingredients が多すぎます。`)
   const ingredients = value.ingredients.map((ingredient, index) => {
     const normalized = normalizeIngredient(
-      readString(ingredient, `${path}.ingredients[${index}]`, LIMITS.ingredient, false),
+      readString(ingredient, `${path}.ingredients[${index}]`, RECIPE_LIMITS.ingredient, false),
     )
     if (!normalized) throw new Error(`${path}.ingredients[${index}] は空にできません。`)
     return normalized
@@ -503,7 +503,7 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
   if (new Set(ingredients).size !== ingredients.length)
     throw new Error(`${path}.ingredients に重複があります。`)
 
-  const rawUrl = readString(value.url, `${path}.url`, LIMITS.url, value.kind === 'paper')
+  const rawUrl = readString(value.url, `${path}.url`, RECIPE_LIMITS.url, value.kind === 'paper')
   const url = rawUrl ? normalizeUrl(rawUrl) : ''
   if (value.kind === 'link' && !url) throw new Error(`${path}.url は空にできません。`)
 
@@ -515,11 +515,11 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
   return {
     id: readId(value.id, `${path}.id`),
     kind: value.kind,
-    title: readString(value.title, `${path}.title`, LIMITS.title),
+    title: readString(value.title, `${path}.title`, RECIPE_LIMITS.title),
     url,
     ingredients,
-    note: readString(value.note, `${path}.note`, LIMITS.note),
-    source: readString(value.source, `${path}.source`, LIMITS.source),
+    note: readString(value.note, `${path}.note`, RECIPE_LIMITS.note),
+    source: readString(value.source, `${path}.source`, RECIPE_LIMITS.source),
     photos: readPhotosArray(value.photos, `${path}.photos`),
     paperPhotos: readPhotosArray(value.paperPhotos, `${path}.paperPhotos`),
     logs,

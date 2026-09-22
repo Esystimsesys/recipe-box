@@ -1,4 +1,4 @@
-import { normalizeUrl } from './domain'
+import { normalizeUrl, RECIPE_LIMITS } from './domain'
 
 export type SharedLink = { url: string; title: string }
 
@@ -27,5 +27,5 @@ export function takeSharedLink(location: Location, history: History): SharedLink
       // Leave the original shared text editable if neither value contains a URL.
     }
   }
-  return { url: sharedUrl.slice(0, 4000), title: title.trim().slice(0, 200) }
+  return { url: sharedUrl, title: title.trim().slice(0, RECIPE_LIMITS.title) }
 }
