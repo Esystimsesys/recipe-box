@@ -75,12 +75,14 @@ function needsSourceContent(recipe: Recipe): boolean {
   return false
 }
 function canRefreshSourceContent(recipe: Recipe): boolean {
+  if (recipe.kind !== 'link' || !recipe.url) return false
+  const sourceKind = sourceContentKind(recipe.url)
+  if (sourceKind === 'none') return false
   return (
-    needsSourceContent(recipe) ||
-    (recipe.kind === 'link' &&
-      !!recipe.url &&
-      recipe.contentSource === 'auto' &&
-      sourceContentKind(recipe.url) !== 'none')
+    recipe.contentSource === 'auto' ||
+    (sourceKind === 'description' &&
+      recipe.contentSource !== 'manual' &&
+      isGenericYouTubeDescription(recipe.searchText || ''))
   )
 }
 const ORDER_LABELS: Record<RecipeOrder, string> = {
@@ -1034,7 +1036,7 @@ export default function App() {
         (recipe) =>
           recipe.kind === 'link' &&
           recipe.url &&
-          (!recipe.title.trim() || (includeAuto && recipe.titleSource === 'auto')),
+          (includeAuto ? recipe.titleSource === 'auto' : !recipe.title.trim()),
       )
       let updated = 0
       let failed = 0
@@ -1183,9 +1185,7 @@ export default function App() {
   const refreshTitleCount = recipes.filter(
     (recipe) => recipe.kind === 'link' && !!recipe.url && recipe.titleSource === 'auto',
   ).length
-  const refreshContentCount = recipes.filter(
-    (recipe) => recipe.contentSource === 'auto' && canRefreshSourceContent(recipe),
-  ).length
+  const refreshContentCount = recipes.filter(canRefreshSourceContent).length
   const filteredTitle = allRecipesSelected
     ? '集めたレシピ'
     : filters.cooked && filters.favorites
@@ -1743,7 +1743,7 @@ export default function App() {
                       )}
                     </div>
                     <p className="fineprint">
-                      再取得は自動取得した情報が対象です。手入力した内容と、取得元を判別できない以前の入力済みデータは保護します。
+                      再取得は自動取得した情報と、旧データに残るYouTubeの共通案内文が対象です。手入力した内容と、取得元を判別できないほかの入力済みデータは保護します。
                     </p>
                   </section>
                 </>

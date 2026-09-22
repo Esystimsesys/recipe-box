@@ -1033,9 +1033,14 @@ test.describe('タイトル取得の回復', () => {
       has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
     })
     await expect(contentAction.getByText('対象は4件です。')).toBeVisible()
+    await contentAction.getByRole('button', { name: '材料などを再取得（2件）' }).click()
+    await expect(contentAction.getByRole('status')).toContainText(
+      '完了：2件を更新、0件は更新できませんでした。',
+    )
+    await expect(contentAction.getByText('対象は3件です。')).toBeVisible()
     await contentAction.getByRole('button', { name: '材料などを一括取得' }).click()
     await expect(contentAction.getByRole('status')).toContainText(
-      '完了：4件を更新、0件は更新できませんでした。',
+      '完了：2件を更新、1件は更新できませんでした。',
     )
     await expect(contentAction.getByText('対象は1件です。')).toBeVisible()
     await page.getByRole('button', { name: '一覧に戻る' }).click()
