@@ -16,6 +16,64 @@ export function cookpadPreviewUrl(url: string): string {
   }
 }
 
+/** Kurashiru publishes a stable thumbnail path for its UUID-based recipe pages. */
+export function kurashiruPreviewUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (
+      parsed.protocol !== 'https:' ||
+      !['kurashiru.com', 'www.kurashiru.com'].includes(parsed.hostname) ||
+      parsed.username ||
+      parsed.password
+    )
+      return ''
+    const match =
+      /^\/recipes\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/iu.exec(
+        parsed.pathname,
+      )
+    return match
+      ? `https://video.kurashiru.com/production/videos/${match[1]}/compressed_thumbnail_square_large.jpg`
+      : ''
+  } catch {
+    return ''
+  }
+}
+
+/** Instagram's public embed keeps its own media URLs fresh. */
+export function instagramEmbedUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (
+      parsed.protocol !== 'https:' ||
+      !['instagram.com', 'www.instagram.com'].includes(parsed.hostname) ||
+      parsed.username ||
+      parsed.password
+    )
+      return ''
+    const match = /^\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)\/?$/u.exec(parsed.pathname)
+    return match ? `https://www.instagram.com/p/${match[1]}/embed/` : ''
+  } catch {
+    return ''
+  }
+}
+
+export function directPreviewUrl(url: string): string {
+  return cookpadPreviewUrl(url) || kurashiruPreviewUrl(url)
+}
+
+export function hasDynamicPreview(url: string): boolean {
+  return Boolean(xPostId(url) || oEmbedUrl(url))
+}
+
+export function previewUrlExpiresSoon(url: string): boolean {
+  try {
+    const expires = Number(new URL(url).searchParams.get('x-expires'))
+    return Number.isFinite(expires) && expires > 0 && expires * 1000 <= Date.now() + 60_000
+  } catch {
+    return false
+  }
+}
+
 export type LinkMetadata = {
   title: string
   imageUrl: string
@@ -77,6 +135,44 @@ async function fetchOEmbed(endpoint: string, sourceUrl: string): Promise<LinkMet
   }
 }
 
+function xPostId(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (
+      parsed.protocol !== 'https:' ||
+      !['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'].includes(parsed.hostname) ||
+      parsed.username ||
+      parsed.password
+    )
+      return ''
+    return /^\/[A-Za-z0-9_]+\/status\/(\d+)(?:\/|$)/u.exec(parsed.pathname)?.[1] || ''
+  } catch {
+    return ''
+  }
+}
+
+async function fetchXPost(url: string): Promise<LinkMetadata> {
+  const id = xPostId(url)
+  if (!id) throw new Error('Xの投稿URLではありません。')
+  const response = await request(`https://api.fxtwitter.com/2/status/${id}`)
+  if (!response.ok) throw new Error('Xの投稿情報を取得できませんでした。')
+  const data = (await response.json()) as {
+    code?: number
+    status?: {
+      text?: unknown
+      media?: { photos?: { url?: unknown }[]; videos?: { thumbnail_url?: unknown }[] }
+    }
+  }
+  if (data.code !== 200) throw new Error('Xの投稿情報を取得できませんでした。')
+  return {
+    title: cleanText(data.status?.text),
+    imageUrl: safeImageUrl(
+      data.status?.media?.photos?.[0]?.url || data.status?.media?.videos?.[0]?.thumbnail_url,
+      url,
+    ),
+  }
+}
+
 async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
   const response = await request(url)
   if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
@@ -97,6 +193,15 @@ async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
 }
 
 export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
+  if (instagramEmbedUrl(url)) return { title: '', imageUrl: '' }
+  const directImage = directPreviewUrl(url)
+  if (xPostId(url)) {
+    try {
+      return await fetchXPost(url)
+    } catch {
+      return { title: '', imageUrl: '' }
+    }
+  }
   const endpoint = oEmbedUrl(url)
   if (endpoint) {
     try {
@@ -106,8 +211,9 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
     }
   }
   try {
-    return await fetchOpenGraph(url)
+    const metadata = await fetchOpenGraph(url)
+    return { ...metadata, imageUrl: metadata.imageUrl || directImage }
   } catch {
-    return { title: '', imageUrl: '' }
+    return { title: '', imageUrl: directImage }
   }
 }

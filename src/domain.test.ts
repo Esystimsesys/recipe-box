@@ -78,6 +78,7 @@ describe('sourceLabel', () => {
     ['https://youtu.be/abcdefghijk', 'YouTube'],
     ['https://www.youtube.com/watch?v=abcdefghijk', 'YouTube'],
     ['https://cookpad.com/recipe/1', 'Cookpad'],
+    ['https://www.kurashiru.com/recipes/example', 'クラシル'],
     ['https://recipes.example.jp/a', 'recipes.example.jp'],
   ])('%s を %s と表示する', (url, expected) => {
     expect(sourceLabel(url)).toBe(expected)

@@ -132,6 +132,7 @@ export function sourceLabel(url: string): string {
   if (hostname === 'youtu.be' || hostname === 'youtube.com' || hostname.endsWith('.youtube.com'))
     return 'YouTube'
   if (hostname === 'cookpad.com' || hostname.endsWith('.cookpad.com')) return 'Cookpad'
+  if (hostname === 'kurashiru.com' || hostname.endsWith('.kurashiru.com')) return 'クラシル'
   return hostname
 }
 
