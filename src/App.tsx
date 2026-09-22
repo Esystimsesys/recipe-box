@@ -316,10 +316,7 @@ function RecipeForm({
               <small>URLだけでも保存できます。</small>
             </div>
           ) : null}
-          <details
-            className="optional-fields"
-            open={initial || kind === 'paper' ? true : undefined}
-          >
+          <details className="optional-fields" open>
             <summary>
               {kind === 'paper' ? 'レシピの内容' : '名前・材料・写真・メモ（任意）'}
             </summary>

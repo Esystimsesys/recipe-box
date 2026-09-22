@@ -273,7 +273,13 @@ test('URLだけで保存し、Cookpadのプレビュー画像をカードに表�
   await openApp(page)
   const dialog = await openNewRecipe(page)
   await dialog.getByLabel('レシピのURL').fill('https://cookpad.com/jp/recipes/12345')
-  await expect(dialog.locator('details.optional-fields')).toHaveJSProperty('open', false)
+  const optionalFields = dialog.locator('details.optional-fields')
+  await expect(optionalFields).toHaveJSProperty('open', true)
+  await expect(dialog.getByLabel('レシピ名')).toBeVisible()
+  await expect(dialog.getByLabel('材料')).toBeVisible()
+  await expect(dialog.getByLabel('自分用メモ')).toBeVisible()
+  await optionalFields.locator('summary').click()
+  await expect(optionalFields).toHaveJSProperty('open', false)
   await dialog.getByRole('button', { name: '保存する' }).click()
   await expect(
     page.getByRole('dialog', { name: 'レシピ' }).getByRole('heading', {
