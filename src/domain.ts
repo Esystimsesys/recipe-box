@@ -15,9 +15,11 @@ export type Recipe = {
   id: string
   kind: 'link' | 'paper'
   title: string
+  titleSource?: 'auto' | 'manual'
   url: string
   ingredients: string[]
   searchText?: string
+  contentSource?: 'auto' | 'manual'
   note: string
   source: string
   photos: Photo[]
@@ -380,6 +382,11 @@ function readBoolean(value: unknown, path: string): boolean {
   return value
 }
 
+function readContentSource(value: unknown, path: string): 'auto' | 'manual' {
+  if (value !== 'auto' && value !== 'manual') throw new Error(`${path} が正しくありません。`)
+  return value
+}
+
 function readImageUrl(value: unknown, path: string): string {
   if (value === undefined || value === '') return ''
   const raw = readString(value, path, RECIPE_LIMITS.url, false).trim()
@@ -506,7 +513,9 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
       'favorite',
       // 旧バージョンが書いた項目。読み飛ばすだけで、新しいバックアップには含めない。
       'wantToCook',
-      ...(version === 2 ? ['cooked', 'imageUrl', 'searchText'] : []),
+      ...(version === 2
+        ? ['cooked', 'imageUrl', 'searchText', 'titleSource', 'contentSource']
+        : []),
       'createdAt',
       'updatedAt',
     ],
@@ -542,10 +551,16 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
     id: readId(value.id, `${path}.id`),
     kind: value.kind,
     title: readString(value.title, `${path}.title`, RECIPE_LIMITS.title),
+    ...(version === 2 && 'titleSource' in value
+      ? { titleSource: readContentSource(value.titleSource, `${path}.titleSource`) }
+      : {}),
     url,
     ingredients,
     ...(version === 2 && 'searchText' in value
       ? { searchText: readString(value.searchText, `${path}.searchText`, RECIPE_LIMITS.searchText) }
+      : {}),
+    ...(version === 2 && 'contentSource' in value
+      ? { contentSource: readContentSource(value.contentSource, `${path}.contentSource`) }
       : {}),
     note: readString(value.note, `${path}.note`, RECIPE_LIMITS.note),
     source: readString(value.source, `${path}.source`, RECIPE_LIMITS.source),
