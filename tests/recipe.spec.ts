@@ -336,13 +336,63 @@ test('サイドバーの開閉状態を再読み込み後も維持する', async
   await page.reload()
   await expect(page.getByRole('navigation', { name: 'モバイルメニュー' })).toHaveCount(0)
   await openSettings(page)
-  await expect(page.getByRole('button', { name: '小さめ' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: '中', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
   await page.getByRole('button', { name: 'メニューを開く' }).click()
   await page
     .locator('#main-sidebar')
     .getByRole('button', { name: /^レシピ帳(?:\s+\d+)?$/u })
     .click()
   await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
+})
+
+test('スマホで小表示を2列にし、リスト表示へ切り替えられる', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openApp(page)
+  const detail = await addLinkRecipe(page, 'スマホ表示の確認')
+  await closeDialog(page, 'レシピ')
+
+  await openSettings(page)
+  const displayControl = page.getByRole('group', { name: '一覧の表示' })
+  await expect(displayControl.getByRole('button')).toHaveText(['小', '中', '大', 'リスト'])
+  await expect(displayControl.getByRole('button', { name: '中', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await displayControl.getByRole('button', { name: '小', exact: true }).click()
+  await page.getByRole('link', { name: 'ひとさじ トップへ' }).click()
+
+  const grid = page.locator('.recipe-grid')
+  await expect(grid).toHaveClass(/\bsmall\b/u)
+  expect(
+    await grid.evaluate(
+      (element) => getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length,
+    ),
+  ).toBe(2)
+
+  await openSettings(page)
+  await page
+    .getByRole('group', { name: '一覧の表示' })
+    .getByRole('button', { name: 'リスト', exact: true })
+    .click()
+  await page.getByRole('link', { name: 'ひとさじ トップへ' }).click()
+  await expect(grid).toHaveClass(/\blist\b/u)
+  await expect(page.locator('.recipe-card')).toHaveCSS('flex-direction', 'row')
+  const sourceBadge = page.locator('.source-badge')
+  await expect(sourceBadge).toHaveCSS('white-space', 'nowrap')
+  const [badgeBox, imageBox] = await Promise.all([
+    sourceBadge.boundingBox(),
+    page.locator('.card-image').boundingBox(),
+  ])
+  expect(badgeBox).not.toBeNull()
+  expect(imageBox).not.toBeNull()
+  expect(badgeBox!.width).toBeLessThanOrEqual(imageBox!.width - 12 + 0.5)
+  expect(badgeBox!.height).toBeLessThan(20)
+
+  await page.reload()
+  await expect(grid).toHaveClass(/\blist\b/u)
 })
 
 test('危険なURLを保存せず、狭い画面と広い画面で横方向にはみ出さない', async ({ page }) => {

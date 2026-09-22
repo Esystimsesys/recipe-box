@@ -24,7 +24,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Grid2X2,
-  Rows3,
 } from 'lucide-react'
 import {
   exportBackup,
@@ -42,7 +41,7 @@ import { cookpadPreviewUrl, fetchLinkMetadata } from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 
 type Page = 'recipes' | 'settings'
-type CardSize = 'compact' | 'comfortable'
+type RecipeLayout = 'small' | 'medium' | 'large' | 'list'
 type ModalState =
   | { type: 'recipe'; recipe?: Recipe }
   | { type: 'detail'; id: string }
@@ -657,13 +656,15 @@ export default function App() {
   }, [])
   const [filters, setFilters] = useState({ cooked: false, favorites: false })
   const [query, setQuery] = useState('')
-  const [cardSize, setCardSize] = useState<CardSize>(() => {
+  const [recipeLayout, setRecipeLayout] = useState<RecipeLayout>(() => {
     try {
-      return localStorage.getItem('hitosaji-card-size') === 'comfortable'
-        ? 'comfortable'
-        : 'compact'
+      const saved = localStorage.getItem('hitosaji-card-size')
+      if (saved === 'small' || saved === 'medium' || saved === 'large' || saved === 'list') {
+        return saved
+      }
+      return saved === 'comfortable' ? 'large' : 'medium'
     } catch {
-      return 'compact'
+      return 'medium'
     }
   })
   const [modal, setModal] = useState<ModalState>(null)
@@ -751,10 +752,10 @@ export default function App() {
     await saveRecipe(changed({ ...recipe, [field]: !recipe[field] }), recipe.updatedAt)
     await afterWrite('変更しました')
   }
-  function changeCardSize(size: CardSize) {
-    setCardSize(size)
+  function changeRecipeLayout(layout: RecipeLayout) {
+    setRecipeLayout(layout)
     try {
-      localStorage.setItem('hitosaji-card-size', size)
+      localStorage.setItem('hitosaji-card-size', layout)
     } catch {}
   }
   const filtered = recipes.filter(
@@ -987,7 +988,7 @@ export default function App() {
                     </h1>
                   </div>
                   {filtered.length ? (
-                    <div className={`recipe-grid ${cardSize}`}>
+                    <div className={`recipe-grid ${recipeLayout}`}>
                       {filtered.map((recipe) => (
                         <article className="recipe-card" key={recipe.id}>
                           <button
@@ -1102,26 +1103,40 @@ export default function App() {
                   <div className="settings-grid">
                     <section className="settings-card">
                       <Grid2X2 className="setting-icon" />
-                      <h2>レシピカードの大きさ</h2>
-                      <p>レシピ一覧に表示するカードの大きさを選べます。</p>
-                      <div className="card-size-control" role="group" aria-label="カードの大きさ">
+                      <h2>一覧の表示</h2>
+                      <p>カードの大きさ、またはリスト表示を選べます。</p>
+                      <div className="card-size-control" role="group" aria-label="一覧の表示">
                         <button
                           type="button"
-                          className={cardSize === 'compact' ? 'active' : ''}
-                          aria-pressed={cardSize === 'compact'}
-                          onClick={() => changeCardSize('compact')}
+                          className={recipeLayout === 'small' ? 'active' : ''}
+                          aria-pressed={recipeLayout === 'small'}
+                          onClick={() => changeRecipeLayout('small')}
                         >
-                          <Grid2X2 size={16} aria-hidden="true" />
-                          小さめ
+                          小
                         </button>
                         <button
                           type="button"
-                          className={cardSize === 'comfortable' ? 'active' : ''}
-                          aria-pressed={cardSize === 'comfortable'}
-                          onClick={() => changeCardSize('comfortable')}
+                          className={recipeLayout === 'medium' ? 'active' : ''}
+                          aria-pressed={recipeLayout === 'medium'}
+                          onClick={() => changeRecipeLayout('medium')}
                         >
-                          <Rows3 size={16} aria-hidden="true" />
-                          大きめ
+                          中
+                        </button>
+                        <button
+                          type="button"
+                          className={recipeLayout === 'large' ? 'active' : ''}
+                          aria-pressed={recipeLayout === 'large'}
+                          onClick={() => changeRecipeLayout('large')}
+                        >
+                          大
+                        </button>
+                        <button
+                          type="button"
+                          className={recipeLayout === 'list' ? 'active' : ''}
+                          aria-pressed={recipeLayout === 'list'}
+                          onClick={() => changeRecipeLayout('list')}
+                        >
+                          リスト
                         </button>
                       </div>
                     </section>
