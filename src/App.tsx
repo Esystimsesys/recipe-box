@@ -35,6 +35,7 @@ import {
   parseBackup,
   parseIngredients,
   readPhotos,
+  sourceContentKind,
   sourceLabel,
   type Photo,
   type Recipe,
@@ -54,6 +55,20 @@ import { version } from '../package.json'
 type Page = 'recipes' | 'settings'
 type RecipeLayout = 'small' | 'medium' | 'large' | 'list'
 type RecipeOrder = 'added' | 'updated' | 'title'
+type RefreshProgress = {
+  done: number
+  total: number
+  updated: number
+  failed: number
+  finished: boolean
+}
+function needsSourceContent(recipe: Recipe): boolean {
+  if (recipe.kind !== 'link' || !recipe.url) return false
+  const sourceKind = sourceContentKind(recipe.url)
+  if (sourceKind === 'description') return !recipe.searchText?.trim()
+  if (sourceKind === 'ingredients') return recipe.ingredients.length === 0
+  return false
+}
 const ORDER_LABELS: Record<RecipeOrder, string> = {
   added: '最近追加した順',
   updated: '最近更新した順',
@@ -373,7 +388,7 @@ function RecipeForm({
         kind,
         title: title.trim() || metadata.title,
         url: cleanUrl,
-        ingredients: isYouTube ? [] : parseIngredients(content),
+        ingredients: isYouTube ? initial?.ingredients || [] : parseIngredients(content),
         searchText: isYouTube ? content.slice(0, RECIPE_LIMITS.searchText) : '',
         note: note.trim(),
         source: kind === 'link' ? sourceLabel(cleanUrl) : source.trim(),
@@ -874,13 +889,8 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [settingsError, setSettingsError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [titleRefresh, setTitleRefresh] = useState<{
-    done: number
-    total: number
-    updated: number
-    failed: number
-    finished: boolean
-  }>()
+  const [titleRefresh, setTitleRefresh] = useState<RefreshProgress>()
+  const [contentRefresh, setContentRefresh] = useState<RefreshProgress>()
   const [updateReady, setUpdateReady] = useState(false)
   const [storage, setStorage] = useState<{ usage?: number; quota?: number }>()
   const [lastBackup, setLastBackup] = useState('')
@@ -1015,6 +1025,63 @@ export default function App() {
       setBusy(false)
     }
   }
+  async function refreshMissingContent() {
+    setBusy(true)
+    setSettingsError('')
+    setContentRefresh(undefined)
+    try {
+      const candidates = (await listRecipes()).filter(needsSourceContent)
+      let updated = 0
+      let failed = 0
+      setContentRefresh({ done: 0, total: candidates.length, updated, failed, finished: false })
+      for (let index = 0; index < candidates.length; index += 3) {
+        await Promise.all(
+          candidates.slice(index, index + 3).map(async (recipe) => {
+            try {
+              const metadata = await fetchLinkMetadata(recipe.url)
+              const sourceKind = sourceContentKind(recipe.url)
+              const content =
+                sourceKind === 'description'
+                  ? {
+                      searchText:
+                        metadata.description?.trim().slice(0, RECIPE_LIMITS.searchText) || '',
+                    }
+                  : { ingredients: parseIngredients(metadata.ingredients?.join('\n') || '') }
+              if (!('searchText' in content ? content.searchText : content.ingredients.length)) {
+                failed++
+                return
+              }
+              await saveRecipe(changed({ ...recipe, ...content }), recipe.updatedAt)
+              updated++
+            } catch {
+              // A failed lookup or concurrent edit leaves the existing record untouched.
+              failed++
+            }
+          }),
+        )
+        setContentRefresh({
+          done: Math.min(index + 3, candidates.length),
+          total: candidates.length,
+          updated,
+          failed,
+          finished: false,
+        })
+      }
+      if (updated) await afterWrite(`${updated}件の材料などを更新しました`)
+      else await refresh()
+      setContentRefresh({
+        done: candidates.length,
+        total: candidates.length,
+        updated,
+        failed,
+        finished: true,
+      })
+    } catch (error) {
+      setSettingsError(friendlyError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
   function changeRecipeLayout(layout: RecipeLayout) {
     setRecipeLayout(layout)
     try {
@@ -1043,6 +1110,7 @@ export default function App() {
   const missingTitleCount = recipes.filter(
     (recipe) => recipe.kind === 'link' && recipe.url && !recipe.title.trim(),
   ).length
+  const missingContentCount = recipes.filter(needsSourceContent).length
   const filteredTitle = allRecipesSelected
     ? '集めたレシピ'
     : filters.cooked && filters.favorites
@@ -1408,6 +1476,30 @@ export default function App() {
                             {titleRefresh.finished
                               ? `完了：${titleRefresh.updated}件を更新、${titleRefresh.failed}件は更新できませんでした。`
                               : `${titleRefresh.done}/${titleRefresh.total}件を確認中…`}
+                          </p>
+                        )}
+                      </div>
+                      <div className="settings-action">
+                        <h3>材料などをまとめて取得</h3>
+                        <p>
+                          料理サイトの材料とYouTubeの概要欄を、空欄の記録に追加します。入力済みの内容は変更しません。対象は
+                          {missingContentCount}件です。
+                        </p>
+                        <button
+                          className="secondary"
+                          disabled={busy || missingContentCount === 0}
+                          onClick={() => void refreshMissingContent()}
+                        >
+                          <RefreshCw size={18} />
+                          {contentRefresh && !contentRefresh.finished
+                            ? `取得中 ${contentRefresh.done}/${contentRefresh.total}件`
+                            : '材料などを一括取得'}
+                        </button>
+                        {contentRefresh && (
+                          <p className="fineprint" role="status">
+                            {contentRefresh.finished
+                              ? `完了：${contentRefresh.updated}件を更新、${contentRefresh.failed}件は更新できませんでした。`
+                              : `${contentRefresh.done}/${contentRefresh.total}件を確認中…`}
                           </p>
                         )}
                       </div>

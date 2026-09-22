@@ -161,9 +161,18 @@ async function readMetadata(target: URL): Promise<Metadata> {
   const youtube = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(
     target.hostname,
   )
-  const social = ['x.com', 'twitter.com', 'instagram.com', 'tiktok.com'].some(
-    (host) => target.hostname === host || target.hostname.endsWith(`.${host}`),
-  )
+  const social = [
+    'x.com',
+    'twitter.com',
+    'instagram.com',
+    'tiktok.com',
+    'facebook.com',
+    'threads.net',
+    'pinterest.com',
+    'bsky.app',
+    'reddit.com',
+    'snapchat.com',
+  ].some((host) => target.hostname === host || target.hostname.endsWith(`.${host}`))
   const response = await fetch(target.toString(), {
     method: 'GET',
     redirect: 'follow',

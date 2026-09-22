@@ -9,6 +9,7 @@ import {
   parseBackup,
   parseIngredients,
   sourceLabel,
+  sourceContentKind,
   type Recipe,
 } from './domain'
 
@@ -82,6 +83,18 @@ describe('sourceLabel', () => {
     ['https://recipes.example.jp/a', 'recipes.example.jp'],
   ])('%s を %s と表示する', (url, expected) => {
     expect(sourceLabel(url)).toBe(expected)
+  })
+})
+
+describe('sourceContentKind', () => {
+  it.each([
+    ['https://cookpad.com/jp/recipes/1', 'ingredients'],
+    ['https://youtu.be/abcdefghijk', 'description'],
+    ['https://x.com/a/status/1', 'none'],
+    ['https://www.instagram.com/p/a/', 'none'],
+    ['https://www.facebook.com/posts/1', 'none'],
+  ])('%s の取得対象を %s にする', (url, expected) => {
+    expect(sourceContentKind(url)).toBe(expected)
   })
 })
 
