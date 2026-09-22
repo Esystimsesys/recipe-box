@@ -831,6 +831,13 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [settingsError, setSettingsError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [titleRefresh, setTitleRefresh] = useState<{
+    done: number
+    total: number
+    updated: number
+    failed: number
+    finished: boolean
+  }>()
   const [updateReady, setUpdateReady] = useState(false)
   const [storage, setStorage] = useState<{ usage?: number; quota?: number }>()
   const [lastBackup, setLastBackup] = useState('')
@@ -913,6 +920,58 @@ export default function App() {
     await saveRecipe(changed({ ...recipe, [field]: !recipe[field] }), recipe.updatedAt)
     await afterWrite('変更しました')
   }
+  async function refreshMissingTitles() {
+    setBusy(true)
+    setSettingsError('')
+    setTitleRefresh(undefined)
+    try {
+      // Read the latest records before starting; never replace a title entered in another tab.
+      const candidates = (await listRecipes()).filter(
+        (recipe) => recipe.kind === 'link' && recipe.url && !recipe.title.trim(),
+      )
+      let updated = 0
+      let failed = 0
+      setTitleRefresh({ done: 0, total: candidates.length, updated, failed, finished: false })
+      for (let index = 0; index < candidates.length; index += 3) {
+        await Promise.all(
+          candidates.slice(index, index + 3).map(async (recipe) => {
+            try {
+              const metadata = await fetchLinkMetadata(recipe.url)
+              if (!metadata.title) {
+                failed++
+                return
+              }
+              await saveRecipe(changed({ ...recipe, title: metadata.title }), recipe.updatedAt)
+              updated++
+            } catch {
+              // A failed lookup or concurrent edit leaves the existing record untouched.
+              failed++
+            }
+          }),
+        )
+        setTitleRefresh({
+          done: Math.min(index + 3, candidates.length),
+          total: candidates.length,
+          updated,
+          failed,
+          finished: false,
+        })
+      }
+      if (updated) await afterWrite(`${updated}件のレシピ名を更新しました`)
+      else await refresh()
+      setTitleRefresh({
+        done: candidates.length,
+        total: candidates.length,
+        updated,
+        failed,
+        finished: true,
+      })
+    } catch (error) {
+      setSettingsError(friendlyError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
   function changeRecipeLayout(layout: RecipeLayout) {
     setRecipeLayout(layout)
     try {
@@ -938,6 +997,9 @@ export default function App() {
       return b.createdAt.localeCompare(a.createdAt)
     })
   const allRecipesSelected = !filters.cooked && !filters.favorites
+  const missingTitleCount = recipes.filter(
+    (recipe) => recipe.kind === 'link' && recipe.url && !recipe.title.trim(),
+  ).length
   const filteredTitle = allRecipesSelected
     ? '集めたレシピ'
     : filters.cooked && filters.favorites
@@ -1282,6 +1344,30 @@ export default function App() {
                         )}
                       </div>
                       <div className="settings-divider" />
+                      <div className="settings-action">
+                        <h3>レシピ名をまとめて取得</h3>
+                        <p>
+                          名前が空欄のURLレシピを取得します。入力済みの名前は変更しません。対象は
+                          {missingTitleCount}件です。
+                        </p>
+                        <button
+                          className="secondary"
+                          disabled={busy || missingTitleCount === 0}
+                          onClick={() => void refreshMissingTitles()}
+                        >
+                          <RefreshCw size={18} />
+                          {titleRefresh && !titleRefresh.finished
+                            ? `取得中 ${titleRefresh.done}/${titleRefresh.total}件`
+                            : 'レシピ名を一括取得'}
+                        </button>
+                        {titleRefresh && (
+                          <p className="fineprint" role="status">
+                            {titleRefresh.finished
+                              ? `完了：${titleRefresh.updated}件を更新、${titleRefresh.failed}件は更新できませんでした。`
+                              : `${titleRefresh.done}/${titleRefresh.total}件を確認中…`}
+                          </p>
+                        )}
+                      </div>
                       <div className="settings-action">
                         <h3>書き出す</h3>
                         <button className="primary" disabled={busy} onClick={backup}>
