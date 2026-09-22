@@ -346,6 +346,8 @@ test('サイドバーの開閉状態を再読み込み後も維持する', async
     'aria-pressed',
     'true',
   )
+  await page.getByRole('button', { name: '一覧に戻る' }).click()
+  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
   await page.getByRole('button', { name: 'メニューを開く' }).click()
   await page
     .locator('#main-sidebar')

@@ -911,8 +911,9 @@ export default function App() {
           <div className="topbar-actions">
             <button
               className="icon-button"
-              aria-label="設定を開く"
-              onClick={() => setPage('settings')}
+              aria-label={page === 'settings' ? '一覧に戻る' : '設定を開く'}
+              title={page === 'settings' ? '一覧に戻る' : '設定を開く'}
+              onClick={() => setPage(page === 'settings' ? 'recipes' : 'settings')}
             >
               <Settings size={19} />
             </button>
