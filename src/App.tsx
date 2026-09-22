@@ -1509,7 +1509,7 @@ export default function App() {
                       <p>
                         外部のレシピは元のサイトを開いて読みます。作り方や動画は取り込みません。
                       </p>
-                      <p className="fineprint">ひとさじ v{version} · 個人のためのレシピ帳</p>
+                      <p className="fineprint">ひとさじ v{version}</p>
                     </section>
                   </div>
                 </>
