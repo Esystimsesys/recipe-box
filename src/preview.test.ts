@@ -39,7 +39,10 @@ describe('cookpadPreviewUrl', () => {
 })
 
 describe('link metadata', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
 
   it('YouTubeの短縮URLを公式oEmbed URLへ変換する', () => {
     expect(oEmbedUrl('https://youtu.be/abcdefghijk')).toBe(
@@ -62,6 +65,30 @@ describe('link metadata', () => {
       title: 'かんたん料理',
       imageUrl: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
     })
+  })
+
+  it('長い投稿文をレシピ名の保存上限に収める', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ title: 'あ'.repeat(400) })),
+    )
+    expect((await fetchLinkMetadata('https://youtu.be/long-title')).title).toHaveLength(300)
+  })
+
+  it('ヘッダー受信後に本文が止まっても取得を打ち切る', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const body = new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () =>
+            controller.error(new DOMException('Aborted', 'AbortError')),
+          )
+        },
+      })
+      return new Response(body)
+    })
+    const pending = fetchLinkMetadata('https://x.com/test/status/123')
+    await vi.advanceTimersByTimeAsync(5_000)
+    await expect(pending).resolves.toEqual({ title: '', imageUrl: '' })
   })
 
   it('Xの公開投稿から写真URLを取得する', async () => {

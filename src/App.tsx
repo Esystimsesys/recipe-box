@@ -26,6 +26,7 @@ import {
   Grid2X2,
 } from 'lucide-react'
 import {
+  RECIPE_LIMITS,
   duplicateKey,
   exportBackup,
   matchesRecipe,
@@ -48,6 +49,7 @@ import {
 } from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 import { takeSharedLink, type SharedLink } from './shared-link'
+import { version } from '../package.json'
 
 type Page = 'recipes' | 'settings'
 type RecipeLayout = 'small' | 'medium' | 'large' | 'list'
@@ -258,6 +260,17 @@ function RecipeForm({
   const [lookup, setLookup] = useState<{ url: string; data: LinkMetadata }>()
   const [looking, setLooking] = useState(false)
   const lookupFor = useRef('')
+  const lookupGeneration = useRef(0)
+  const automaticTitle = useRef('')
+  function resetLookup() {
+    lookupGeneration.current++
+    lookupFor.current = ''
+    setLookup(undefined)
+    setLooking(false)
+    const previousTitle = automaticTitle.current
+    setTitle((current) => (current === previousTitle ? '' : current))
+    automaticTitle.current = ''
+  }
   const pending = busy || photoBusy || paperBusy
 
   // URLを入れた時点でタイトルを調べ、保存時に待たせない。結果はフォームに出して直せるようにする。
@@ -265,21 +278,26 @@ function RecipeForm({
     let cleanUrl = ''
     try {
       cleanUrl = normalizeUrl(raw)
+      if (cleanUrl.length > RECIPE_LIMITS.url) return
     } catch {
       return
     }
     if (lookupFor.current === cleanUrl) return
     lookupFor.current = cleanUrl
+    const generation = ++lookupGeneration.current
     setLooking(true)
     try {
       const data = await loadPreview(cleanUrl)
-      if (lookupFor.current !== cleanUrl) return
+      if (lookupGeneration.current !== generation) return
       setLookup({ url: cleanUrl, data })
-      if (data.title) setTitle((current) => current || data.title)
+      if (data.title) {
+        automaticTitle.current = data.title
+        setTitle((current) => current || data.title)
+      }
     } catch {
       // 取得できなくてもURLは保存できる。
     } finally {
-      if (lookupFor.current === cleanUrl) setLooking(false)
+      if (lookupGeneration.current === generation) setLooking(false)
     }
   }
 
@@ -296,6 +314,8 @@ function RecipeForm({
     try {
       const cleanUrl = kind === 'link' ? normalizeUrl(url) : ''
       if (kind === 'link' && !cleanUrl) throw new Error('レシピのURLを入力してください。')
+      if (cleanUrl.length > RECIPE_LIMITS.url)
+        throw new Error(`レシピのURLは${RECIPE_LIMITS.url}文字以内にしてください。`)
       const existing =
         kind === 'link'
           ? recipes.find(
@@ -364,7 +384,10 @@ function RecipeForm({
                 type="button"
                 className={kind === 'paper' ? 'active' : ''}
                 disabled={pending}
-                onClick={() => setKind('paper')}
+                onClick={() => {
+                  resetLookup()
+                  setKind('paper')
+                }}
               >
                 <FileImage size={18} />
                 手動で登録
@@ -382,12 +405,13 @@ function RecipeForm({
                 required
                 value={url}
                 onChange={(event) => {
+                  resetLookup()
                   setUrl(event.target.value)
                   setDuplicate(undefined)
                 }}
                 onBlur={(event) => void lookupMetadata(event.target.value)}
                 placeholder="https://… または共有した文章"
-                maxLength={4000}
+                maxLength={RECIPE_LIMITS.url}
               />
               <small>
                 {looking
@@ -412,9 +436,12 @@ function RecipeForm({
                 autoFocus={kind === 'paper'}
                 required={kind === 'paper' && !paperPhotos.length}
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => {
+                  automaticTitle.current = ''
+                  setTitle(event.target.value)
+                }}
                 placeholder="例：鶏肉と玉ねぎの甘酢炒め"
-                maxLength={200}
+                maxLength={RECIPE_LIMITS.title}
               />
             </div>
             <div className="field">
@@ -437,7 +464,7 @@ function RecipeForm({
                   value={source}
                   onChange={(event) => setSource(event.target.value)}
                   placeholder="本・雑誌・SNS・教えてくれた人など"
-                  maxLength={200}
+                  maxLength={RECIPE_LIMITS.source}
                 />
               </div>
             )}
@@ -465,7 +492,7 @@ function RecipeForm({
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 placeholder="おいしく作るコツ、試してみたいアレンジなど"
-                maxLength={10000}
+                maxLength={RECIPE_LIMITS.note}
               />
             </div>
           </details>
@@ -1386,7 +1413,7 @@ export default function App() {
                       <p>
                         外部のレシピは元のサイトを開いて読みます。作り方や動画は取り込みません。
                       </p>
-                      <p className="fineprint">ひとさじ v0.1 · 個人のためのレシピ帳</p>
+                      <p className="fineprint">ひとさじ v{version} · 個人のためのレシピ帳</p>
                     </section>
                   </div>
                 </>
