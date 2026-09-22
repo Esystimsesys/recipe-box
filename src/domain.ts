@@ -17,6 +17,7 @@ export type Recipe = {
   title: string
   url: string
   ingredients: string[]
+  searchText?: string
   note: string
   source: string
   photos: Photo[]
@@ -49,6 +50,7 @@ export const RECIPE_LIMITS = {
   url: 4_096,
   ingredient: 120,
   note: 30_000,
+  searchText: 30_000,
   source: 300,
   photoName: 255,
 } as const
@@ -195,9 +197,13 @@ export function matchesRecipe(recipe: Recipe, query: string, ingredients: string
     .split(/[\s,，、]+/u)
     .map(normalizeSearchText)
     .filter(Boolean)
-  const searchableValues = [recipe.title, recipe.note, recipe.source, ...recipe.ingredients].map(
-    normalizeSearchText,
-  )
+  const searchableValues = [
+    recipe.title,
+    recipe.note,
+    recipe.source,
+    recipe.searchText || '',
+    ...recipe.ingredients,
+  ].map(normalizeSearchText)
   const recipeIngredients = recipe.ingredients.map((value) =>
     normalizeSearchText(normalizeIngredient(value)),
   )
@@ -480,7 +486,7 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
       'favorite',
       // 旧バージョンが書いた項目。読み飛ばすだけで、新しいバックアップには含めない。
       'wantToCook',
-      ...(version === 2 ? ['cooked', 'imageUrl'] : []),
+      ...(version === 2 ? ['cooked', 'imageUrl', 'searchText'] : []),
       'createdAt',
       'updatedAt',
     ],
@@ -518,6 +524,9 @@ function readRecipe(value: unknown, path: string, version: 1 | 2): Recipe {
     title: readString(value.title, `${path}.title`, RECIPE_LIMITS.title),
     url,
     ingredients,
+    ...(version === 2 && 'searchText' in value
+      ? { searchText: readString(value.searchText, `${path}.searchText`, RECIPE_LIMITS.searchText) }
+      : {}),
     note: readString(value.note, `${path}.note`, RECIPE_LIMITS.note),
     source: readString(value.source, `${path}.source`, RECIPE_LIMITS.source),
     photos: readPhotosArray(value.photos, `${path}.photos`),

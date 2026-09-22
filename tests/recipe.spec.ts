@@ -40,7 +40,7 @@ async function addLinkRecipe(page: Page, title = '鶏と玉ねぎ') {
     .fill('おすすめです https://example.com/recipe?id=7&from=share#steps 。')
   await openOptionalFields(dialog)
   await dialog.getByLabel('レシピ名').fill(title)
-  await dialog.getByLabel('材料').fill('鶏肉、たまねぎ')
+  await dialog.getByLabel('材料など').fill('鶏肉、たまねぎ')
   await dialog.getByRole('button', { name: '保存する' }).click()
 
   const detail = page.getByRole('dialog', { name: 'レシピ' })
@@ -60,7 +60,7 @@ async function addPaperRecipe(page: Page, title = '祖母の煮物') {
   await expect(dialog.getByAltText('レシピの画像 2')).toBeVisible()
   await openOptionalFields(dialog)
   await dialog.getByLabel('レシピ名').fill(title)
-  await dialog.getByLabel('材料').fill('じゃがいも、にんじん')
+  await dialog.getByLabel('材料など').fill('じゃがいも、にんじん')
   await dialog.getByLabel('出典').fill('祖母のノート')
   await dialog.getByRole('button', { name: '保存する' }).click()
 
@@ -309,7 +309,7 @@ test('URLだけで保存し、Cookpadのプレビュー画像をカードに表�
   const optionalFields = dialog.locator('details.optional-fields')
   await expect(optionalFields).toHaveJSProperty('open', true)
   await expect(dialog.getByLabel('レシピ名')).toBeVisible()
-  await expect(dialog.getByLabel('材料')).toBeVisible()
+  await expect(dialog.getByLabel('材料など')).toBeVisible()
   await expect(dialog.getByLabel('自分用メモ')).toBeVisible()
   await optionalFields.locator('summary').click()
   await expect(optionalFields).toHaveJSProperty('open', false)
@@ -330,6 +330,12 @@ test('URLだけで保存し、Cookpadのプレビュー画像をカードに表�
 })
 
 test('YouTubeのURLからタイトルとプレビュー画像を取得する', async ({ page }) => {
+  await routeLinkMetadata(page, {
+    title: 'フライパンで作る簡単レシピ',
+    imageUrl: '',
+    description: '鶏むね肉で作る\n節約料理',
+    ingredients: [],
+  })
   await page.route('https://www.youtube.com/oembed?**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -350,11 +356,33 @@ test('YouTubeのURLからタイトルとプレビュー画像を取得する', a
   const detail = page.getByRole('dialog', { name: 'レシピ' })
   await expect(detail.getByRole('heading', { name: 'フライパンで作る簡単レシピ' })).toBeVisible()
   await expect(detail.getByText('YouTube', { exact: true })).toBeVisible()
+  await expect(detail.getByText('鶏むね肉で作る')).toBeVisible()
   await closeDialog(page, 'レシピ')
+  await page.getByRole('textbox', { name: 'レシピを検索' }).fill('節約料理')
+  await expect(page.locator('.recipe-card')).toHaveCount(1)
   await expect(page.getByRole('img', { name: 'フライパンで作る簡単レシピ' })).toHaveAttribute(
     'src',
     'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
   )
+})
+
+test('料理サイトの材料を自動で保存し検索できる', async ({ page }) => {
+  test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
+  await routeLinkMetadata(page, {
+    title: '季節のスープ',
+    imageUrl: '',
+    ingredients: ['かぼちゃ 200g', '牛乳 100ml'],
+    description: '',
+  })
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://example.com/seasonal-soup')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  const detail = page.getByRole('dialog', { name: 'レシピ' })
+  await expect(detail.getByText('かぼちゃ 200g')).toBeVisible()
+  await closeDialog(page, 'レシピ')
+  await page.getByRole('textbox', { name: 'レシピを検索' }).fill('かぼちゃ')
+  await expect(page.locator('.recipe-card')).toHaveCount(1)
 })
 
 test('取得用エンドポイントからレシピ名を受け取って登録する', async ({ page }) => {

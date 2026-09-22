@@ -248,6 +248,7 @@ function RecipeForm({
   const [title, setTitle] = useState(initial?.title || shared?.title || '')
   const [url, setUrl] = useState(initial?.url || shared?.url || '')
   const [ingredients, setIngredients] = useState(initial?.ingredients.join('、') || '')
+  const [searchText, setSearchText] = useState(initial?.searchText || '')
   const [note, setNote] = useState(initial?.note || '')
   const [source, setSource] = useState(initial?.source || '')
   const [photos, setPhotos] = useState<Photo[]>(initial?.photos || [])
@@ -262,6 +263,15 @@ function RecipeForm({
   const lookupFor = useRef('')
   const lookupGeneration = useRef(0)
   const automaticTitle = useRef('')
+  const automaticContent = useRef('')
+  let isYouTubeInput = false
+  if (kind === 'link' && url) {
+    try {
+      isYouTubeInput = sourceLabel(normalizeUrl(url)) === 'YouTube'
+    } catch {
+      // Keep the ordinary field while the URL is incomplete.
+    }
+  }
   function resetLookup() {
     lookupGeneration.current++
     lookupFor.current = ''
@@ -270,6 +280,12 @@ function RecipeForm({
     const previousTitle = automaticTitle.current
     setTitle((current) => (current === previousTitle ? '' : current))
     automaticTitle.current = ''
+    const previousContent = automaticContent.current
+    if (previousContent) {
+      setIngredients((current) => (current === previousContent ? '' : current))
+      setSearchText((current) => (current === previousContent ? '' : current))
+    }
+    automaticContent.current = ''
   }
   const pending = busy || photoBusy || paperBusy
 
@@ -293,6 +309,12 @@ function RecipeForm({
       if (data.title) {
         automaticTitle.current = data.title
         setTitle((current) => current || data.title)
+      }
+      const content = data.description || data.ingredients?.join('\n') || ''
+      if (content) {
+        automaticContent.current = content
+        if (data.description) setSearchText((current) => current || content)
+        else setIngredients((current) => current || content)
       }
     } catch {
       // 取得できなくてもURLは保存できる。
@@ -332,18 +354,27 @@ function RecipeForm({
       const now = new Date().toISOString()
       // A changed URL invalidates the stored preview, so fetch it again for the new link.
       const urlChanged = kind === 'link' && !!initial && cleanUrl !== initial.url
-      const needsMetadata = kind === 'link' && (!title.trim() || !initial?.imageUrl || urlChanged)
+      const needsMetadata =
+        kind === 'link' &&
+        (!title.trim() ||
+          !initial?.imageUrl ||
+          urlChanged ||
+          (!ingredients.trim() && !searchText.trim() && !initial))
       const metadata = !needsMetadata
-        ? { title: '', imageUrl: '' }
-        : lookup?.url === cleanUrl && (title.trim() || lookup.data.title)
+        ? { title: '', imageUrl: '', ingredients: [], description: '' }
+        : lookup?.url === cleanUrl
           ? lookup.data
           : await loadPreview(cleanUrl)
+      const isYouTube = kind === 'link' && sourceLabel(cleanUrl) === 'YouTube'
+      const fetchedContent = metadata.description || metadata.ingredients?.join('\n') || ''
+      const content = (isYouTube ? searchText : ingredients).trim() || fetchedContent
       const recipe: Recipe = {
         id: initial?.id || newId(),
         kind,
         title: title.trim() || metadata.title,
         url: cleanUrl,
-        ingredients: parseIngredients(ingredients),
+        ingredients: isYouTube ? [] : parseIngredients(content),
+        searchText: isYouTube ? content.slice(0, RECIPE_LIMITS.searchText) : '',
         note: note.trim(),
         source: kind === 'link' ? sourceLabel(cleanUrl) : source.trim(),
         photos,
@@ -435,7 +466,7 @@ function RecipeForm({
           ) : null}
           <details className="optional-fields" open>
             <summary>
-              {kind === 'paper' ? 'レシピの内容' : '名前・材料・写真・メモ（任意）'}
+              {kind === 'paper' ? 'レシピの内容' : '名前・材料など・写真・メモ（任意）'}
             </summary>
             <div className="field">
               <label htmlFor="recipe-title">
@@ -456,16 +487,22 @@ function RecipeForm({
               />
             </div>
             <div className="field">
-              <label htmlFor="recipe-ingredients">材料</label>
+              <label htmlFor="recipe-ingredients">材料など</label>
               <textarea
                 id="recipe-ingredients"
                 rows={2}
-                value={ingredients}
-                onChange={(event) => setIngredients(event.target.value)}
-                placeholder="鶏肉、玉ねぎ、ピーマン"
-                maxLength={3000}
+                value={isYouTubeInput ? searchText : ingredients}
+                onChange={(event) => {
+                  automaticContent.current = ''
+                  if (isYouTubeInput) setSearchText(event.target.value)
+                  else setIngredients(event.target.value)
+                }}
+                placeholder="材料や概要欄など、検索したい内容"
+                maxLength={RECIPE_LIMITS.searchText}
               />
-              <small>「、」や改行で区切って入力。材料で検索できるようになります。</small>
+              <small>
+                料理サイトは材料、YouTubeは概要欄を自動入力します。作り方は元のページで確認できます。
+              </small>
             </div>
             {kind === 'paper' && (
               <div className="field">
@@ -712,12 +749,18 @@ function RecipeDetail({
         </div>
         {!!recipe.ingredients.length && (
           <section className="detail-section">
-            <h3>材料</h3>
+            <h3>材料など</h3>
             <div className="ingredient-tags">
               {recipe.ingredients.map((ingredient) => (
                 <span key={ingredient}>{ingredient}</span>
               ))}
             </div>
+          </section>
+        )}
+        {recipe.searchText && (
+          <section className="detail-section">
+            <h3>材料など</h3>
+            <p className="preserve-lines">{recipe.searchText}</p>
           </section>
         )}
         {recipe.note && (
@@ -1065,7 +1108,7 @@ export default function App() {
                 name="recipe-search"
                 autoComplete="off"
                 aria-label="レシピを検索"
-                placeholder="レシピ名・材料・メモを検索…"
+                placeholder="レシピ名・材料など・メモを検索…"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />

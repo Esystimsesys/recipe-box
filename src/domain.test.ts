@@ -106,6 +106,11 @@ describe('duplicateKey', () => {
 })
 
 describe('ingredient search', () => {
+  it('概要欄を検索でき、バックアップ後も保持する', () => {
+    const recipe = sampleRecipe({ ingredients: [], searchText: '鶏むね肉で作る\n節約料理' })
+    expect(matchesRecipe(recipe, '節約料理')).toBe(true)
+    expect(parseBackup(exportBackup([recipe]))[0].searchText).toBe(recipe.searchText)
+  })
   it('表記ゆれを正規化し、順序を保って重複を除く', () => {
     expect(normalizeIngredient(' タマネギ ')).toBe('玉ねぎ')
     expect(parseIngredients('タマネギ、鶏肉，玉ねぎ\nジャガイモ')).toEqual([

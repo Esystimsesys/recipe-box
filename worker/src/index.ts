@@ -1,9 +1,11 @@
+import { recipeIngredients, youtubeDescription } from './extract'
+
 /**
  * 「ひとさじ」のリンクメタデータ取得。
  *
  * レシピサイトの多くは CORS ヘッダーを返さないため、ブラウザからは og:title を読めない。
- * この Worker はページを取得して og:title と og:image だけを返す。本文・手順・動画は
- * 読み取らず、保存もしない。
+ * この Worker はタイトル・画像と、料理サイトの構造化データの材料または
+ * YouTube の概要欄を返す。料理サイトの手順・動画・SNS 本文は保存しない。
  */
 
 const MAX_HTML_BYTES = 512 * 1024
@@ -11,17 +13,18 @@ const UPSTREAM_TIMEOUT_MS = 8_000
 const UPSTREAM_CACHE_SECONDS = 3_600
 const RESULT_CACHE_SECONDS = 21_600
 /** 取り出し方を変えたら上げる。古いキャッシュを読まないようにするため。 */
-const RESULT_CACHE_VERSION = 2
+const RESULT_CACHE_VERSION = 3
 const MAX_TITLE_LENGTH = 300
+const MAX_SEARCH_TEXT_LENGTH = 30_000
 const USER_AGENT = 'hitosaji-link-metadata/1.0 (+https://github.com/Esystimsesys/recipe-box)'
 
 /** 公開 DNS 名以外を取りに行かせない。 */
 const PRIVATE_HOST_SUFFIXES = ['.local', '.internal', '.localhost', '.home.arpa', '.ts.net']
 const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/u
 
-type Metadata = { title: string; imageUrl: string }
+type Metadata = { title: string; imageUrl: string; ingredients: string[]; description: string }
 
-const EMPTY: Metadata = { title: '', imageUrl: '' }
+const EMPTY: Metadata = { title: '', imageUrl: '', ingredients: [], description: '' }
 
 /**
  * Origin はブラウザ以外からは詐称できるので、これは認証ではなく無料枠を守るための目印。
@@ -155,6 +158,12 @@ function httpsImageUrl(value: string, baseUrl: string): string {
 }
 
 async function readMetadata(target: URL): Promise<Metadata> {
+  const youtube = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(
+    target.hostname,
+  )
+  const social = ['x.com', 'twitter.com', 'instagram.com', 'tiktok.com'].some(
+    (host) => target.hostname === host || target.hostname.endsWith(`.${host}`),
+  )
   const response = await fetch(target.toString(), {
     method: 'GET',
     redirect: 'follow',
@@ -175,6 +184,12 @@ async function readMetadata(target: URL): Promise<Metadata> {
   let siteName = ''
   let ogImage = ''
   let twitterImage = ''
+  let description = ''
+  let metaDescription = ''
+  let structured = ''
+  let ingredients: string[] = []
+  let inStructured = false
+  let inVideoScript = false
 
   const parsed = new HTMLRewriter()
     .on('meta', {
@@ -189,6 +204,35 @@ async function readMetadata(target: URL): Promise<Metadata> {
         else if (key === 'og:site_name') siteName ||= content
         else if (key === 'og:image' || key === 'og:image:secure_url') ogImage ||= content
         else if (key === 'twitter:image') twitterImage ||= content
+        else if (youtube && (key === 'description' || key === 'og:description'))
+          metaDescription ||= content
+      },
+    })
+    .on('script', {
+      element(element) {
+        inStructured =
+          !youtube &&
+          !social &&
+          element.getAttribute('type')?.toLowerCase().startsWith('application/ld+json') === true
+        inVideoScript = youtube
+        structured = ''
+      },
+      text(chunk) {
+        if (inStructured && structured.length < MAX_HTML_BYTES) structured += chunk.text
+        if (inVideoScript && !description && structured.length < MAX_HTML_BYTES)
+          structured += chunk.text
+        if (chunk.lastInTextNode) {
+          if (inStructured) {
+            try {
+              ingredients.push(...recipeIngredients(JSON.parse(structured)))
+            } catch {
+              // Ignore malformed structured data.
+            }
+          }
+          if (inVideoScript) description = youtubeDescription(structured) || description
+          inStructured = false
+          inVideoScript = false
+        }
       },
     })
     .on('title', {
@@ -196,7 +240,7 @@ async function readMetadata(target: URL): Promise<Metadata> {
         documentTitle += chunk.text
       },
     })
-    .transform(new Response(limitBytes(response.body, MAX_HTML_BYTES)))
+    .transform(new Response(limitBytes(response.body, youtube ? 2 * 1024 * 1024 : MAX_HTML_BYTES)))
 
   // 本文は保存せず読み捨てる。ここで初めてページ全体が流れる。
   await parsed.body?.pipeTo(new WritableStream())
@@ -205,6 +249,8 @@ async function readMetadata(target: URL): Promise<Metadata> {
   return {
     title: withoutSiteName(title, cleanText(siteName)),
     imageUrl: httpsImageUrl(ogImage || twitterImage, response.url || target.toString()),
+    ingredients: [...new Set(ingredients)].slice(0, 200),
+    description: youtube ? (description || metaDescription).slice(0, MAX_SEARCH_TEXT_LENGTH) : '',
   }
 }
 
