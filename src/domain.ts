@@ -170,6 +170,26 @@ export function sourceLabel(url: string): string {
   return hostname
 }
 
+export function sourceContentKind(url: string): 'ingredients' | 'description' | 'none' {
+  const hostname = new URL(normalizeUrl(url)).hostname.toLowerCase().replace(/^www\./u, '')
+  if (hostname === 'youtu.be' || hostname === 'youtube.com' || hostname.endsWith('.youtube.com'))
+    return 'description'
+  const socialHosts = [
+    'x.com',
+    'twitter.com',
+    'instagram.com',
+    'tiktok.com',
+    'facebook.com',
+    'threads.net',
+    'pinterest.com',
+    'bsky.app',
+    'reddit.com',
+    'snapchat.com',
+  ]
+  if (socialHosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return 'none'
+  return 'ingredients'
+}
+
 export function normalizeIngredient(input: string): string {
   const normalized = input.normalize('NFKC').trim().toLocaleLowerCase('ja-JP')
   return INGREDIENT_ALIASES.get(normalized) ?? normalized

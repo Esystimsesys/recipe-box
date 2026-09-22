@@ -927,6 +927,57 @@ test('長い共有URLは切断せず保存し、上限超過はエラーとし�
 test.describe('タイトル取得の回復', () => {
   test.use({ serviceWorkers: 'block' })
 
+  test('既存の空欄だけに材料と概要欄を追加し、手入力は保つ', async ({ page }) => {
+    test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
+    await page.route('https://www.youtube.com/oembed?**', (route) =>
+      route.fulfill({ json: { title: '動画のレシピ', thumbnail_url: '' } }),
+    )
+    await openApp(page)
+    for (const [url, title, content] of [
+      ['https://example.com/soup', 'スープ', ''],
+      ['https://youtu.be/abcdefghijk', '動画のレシピ', ''],
+      ['https://example.com/manual', '手入力の料理', '手入力の材料'],
+    ]) {
+      const dialog = await openNewRecipe(page)
+      await dialog.getByLabel('レシピのURL').fill(url)
+      await dialog.getByLabel('レシピ名').fill(title)
+      if (content) await dialog.getByLabel('材料など').fill(content)
+      await dialog.getByRole('button', { name: '保存する' }).click()
+      await closeDialog(page, 'レシピ')
+    }
+    const endpoint = `${new URL(METADATA_ENDPOINT).origin}/**`
+    await page.route(endpoint, (route) => {
+      const target = new URL(route.request().url()).searchParams.get('url') || ''
+      return route.fulfill({
+        json: target.includes('youtu.be')
+          ? {
+              title: '動画のレシピ',
+              imageUrl: '',
+              ingredients: [],
+              description: '鶏むね肉の節約料理',
+            }
+          : { title: 'スープ', imageUrl: '', ingredients: ['かぼちゃ 200g'], description: '' },
+      })
+    })
+    await openSettings(page)
+    const contentAction = page.locator('.settings-action').filter({
+      has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
+    })
+    await expect(contentAction.getByText('対象は2件です。')).toBeVisible()
+    await contentAction.getByRole('button', { name: '材料などを一括取得' }).click()
+    await expect(contentAction.getByRole('status')).toContainText(
+      '完了：2件を更新、0件は更新できませんでした。',
+    )
+    await expect(contentAction.getByText('対象は0件です。')).toBeVisible()
+    await page.getByRole('button', { name: '一覧に戻る' }).click()
+    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('かぼちゃ')
+    await expect(page.locator('.recipe-card')).toHaveCount(1)
+    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('節約料理')
+    await expect(page.locator('.recipe-card')).toHaveCount(1)
+    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('手入力の材料')
+    await expect(page.locator('.recipe-card')).toHaveCount(1)
+  })
+
   test('設定から空欄のレシピ名を一括取得し、入力済みの名前を保つ', async ({ page }) => {
     test.skip(!METADATA_ENDPOINT, 'タイトル取得用エンドポイントが必要')
     await openApp(page)
