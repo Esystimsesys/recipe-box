@@ -274,7 +274,7 @@ function RecipeForm({
   const pending = busy || photoBusy || paperBusy
 
   // URLを入れた時点でタイトルを調べ、保存時に待たせない。結果はフォームに出して直せるようにする。
-  async function lookupMetadata(raw: string) {
+  async function lookupMetadata(raw: string, retry = false) {
     let cleanUrl = ''
     try {
       cleanUrl = normalizeUrl(raw)
@@ -282,12 +282,12 @@ function RecipeForm({
     } catch {
       return
     }
-    if (lookupFor.current === cleanUrl) return
+    if (!retry && lookupFor.current === cleanUrl) return
     lookupFor.current = cleanUrl
     const generation = ++lookupGeneration.current
     setLooking(true)
     try {
-      const data = await loadPreview(cleanUrl)
+      const data = await loadPreview(cleanUrl, retry)
       if (lookupGeneration.current !== generation) return
       setLookup({ url: cleanUrl, data })
       if (data.title) {
@@ -302,8 +302,8 @@ function RecipeForm({
   }
 
   useEffect(() => {
-    if (!initial && kind === 'link' && url) void lookupMetadata(url)
-    // 共有から渡されたURLは開いた時点で調べる。
+    if (kind === 'link' && url && !title.trim()) void lookupMetadata(url)
+    // 共有URLと、名前なしで保存されたレシピは開いた時点で調べ直す。
   }, [])
 
   async function submit(event: FormEvent) {
@@ -335,7 +335,7 @@ function RecipeForm({
       const needsMetadata = kind === 'link' && (!title.trim() || !initial?.imageUrl || urlChanged)
       const metadata = !needsMetadata
         ? { title: '', imageUrl: '' }
-        : lookup?.url === cleanUrl
+        : lookup?.url === cleanUrl && (title.trim() || lookup.data.title)
           ? lookup.data
           : await loadPreview(cleanUrl)
       const recipe: Recipe = {
@@ -420,6 +420,17 @@ function RecipeForm({
                     ? 'レシピ名は取得できませんでした。入力できます。'
                     : 'URLだけでも保存できます。'}
               </small>
+              {!title.trim() && (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={pending || looking || !url.trim()}
+                  onClick={() => void lookupMetadata(url, true)}
+                >
+                  <RefreshCw size={16} />
+                  {looking ? 'レシピ名を取得中…' : 'レシピ名を再取得'}
+                </button>
+              )}
             </div>
           ) : null}
           <details className="optional-fields" open>
@@ -529,9 +540,8 @@ function loadPreview(url: string, refresh = false): Promise<LinkMetadata> {
     const request = fetchLinkMetadata(url)
     previewRequests.set(url, request)
     request.then((metadata) => {
-      // 何も取れなかったときだけ捨てる。タイトルだけ取れた結果は保存時に使い回す。
-      if (!metadata.imageUrl && !metadata.title && previewRequests.get(url) === request)
-        previewRequests.delete(url)
+      // 画像だけの代替結果でタイトル取得の失敗を固定しない。
+      if (!metadata.title && previewRequests.get(url) === request) previewRequests.delete(url)
     })
   }
   return previewRequests.get(url)!
