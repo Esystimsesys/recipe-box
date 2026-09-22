@@ -129,6 +129,7 @@ test('リンクを保存し、横断検索・独立した絞り込み・編集�
     'true',
   )
   const filterRow = page.locator('.filter-row')
+  await expect(filterRow.getByRole('button')).toHaveText(['すべて', 'お気に入り', '作った'])
   const cookedFilter = filterRow.getByRole('button', { name: '作った', exact: true })
   const favoriteFilter = filterRow.getByRole('button', { name: 'お気に入り', exact: true })
   await cookedFilter.click()
