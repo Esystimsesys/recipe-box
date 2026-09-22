@@ -77,6 +77,40 @@ async function openSettings(page: Page) {
   await expect(page.getByRole('heading', { name: /レシピ帳の設定/ })).toBeVisible()
 }
 
+test('共有されたURLを登録フォームに入れ、保存後も共有情報をURLに残さない', async ({ page }) => {
+  const shared = new URLSearchParams({
+    share_target: '1',
+    title: '共有されたレシピ',
+    text: 'こちらのレシピ https://example.com/shared?from=app#method をどうぞ',
+  })
+  await page.goto(`/?${shared}`)
+  const dialog = page.getByRole('dialog', { name: '追加' })
+  await expect(dialog.getByLabel('レシピのURL')).toHaveValue(
+    'https://example.com/shared?from=app#method',
+  )
+  await expect(dialog.getByLabel('レシピ名')).toHaveValue('共有されたレシピ')
+  await expect(page).toHaveURL('/')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await expect(page.getByRole('dialog', { name: 'レシピ' })).toContainText('共有されたレシピ')
+  await expect(page.getByRole('link', { name: '元のレシピを見る' })).toHaveAttribute(
+    'href',
+    'https://example.com/shared?from=app#method',
+  )
+})
+
+test('ショートカットからURLのフラグメントで受け取り、登録フォームを開く', async ({ page }) => {
+  const shared = new URLSearchParams({
+    share_target: '1',
+    url: 'https://example.com/recipe?from=iphone&meal=rice#step-2',
+  })
+  await page.goto(`/#${shared}`)
+  const dialog = page.getByRole('dialog', { name: '追加' })
+  await expect(dialog.getByLabel('レシピのURL')).toHaveValue(
+    'https://example.com/recipe?from=iphone&meal=rice#step-2',
+  )
+  await expect(page).toHaveURL('/')
+})
+
 test('リンクを保存し、横断検索・独立した絞り込み・編集ができる', async ({ page }) => {
   await openApp(page)
   await expect(page.getByRole('heading', { name: 'レシピはまだありません' })).toBeVisible()
@@ -325,6 +359,10 @@ test('上部のブランドからトップへ戻り、設定を開閉できる',
   await expect(brand).toContainText('わたしのレシピ帳')
   await expect(page.locator('#main-sidebar')).toHaveCount(0)
   await openSettings(page)
+  await expect(page.getByRole('link', { name: 'ショートカットを追加' })).toHaveAttribute(
+    'href',
+    'https://www.icloud.com/shortcuts/f78f1b3c4d8749bfa6b7e631159f7ae3',
+  )
   await brand.click()
   await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
 

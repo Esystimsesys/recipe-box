@@ -5,8 +5,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const allowedHosts = env.DEV_ALLOWED_HOST ? [env.DEV_ALLOWED_HOST] : []
+  const base = process.env.BASE_PATH || '/'
   return {
-    base: process.env.BASE_PATH || '/',
+    base,
     plugins: [
       react(),
       {
@@ -39,6 +40,13 @@ export default defineConfig(({ mode }) => {
           theme_color: '#faf8f3',
           background_color: '#faf8f3',
           display: 'standalone',
+          start_url: base,
+          scope: base,
+          share_target: {
+            action: './?share_target=1',
+            method: 'GET',
+            params: { title: 'title', text: 'text', url: 'url' },
+          },
           icons: [
             { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
             { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

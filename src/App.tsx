@@ -37,11 +37,13 @@ import {
 } from './domain'
 import { cookpadPreviewUrl, fetchLinkMetadata } from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
+import { takeSharedLink, type SharedLink } from './shared-link'
 
 type Page = 'recipes' | 'settings'
 type RecipeLayout = 'small' | 'medium' | 'large' | 'list'
+const IOS_SHORTCUT_URL = 'https://www.icloud.com/shortcuts/f78f1b3c4d8749bfa6b7e631159f7ae3'
 type ModalState =
-  | { type: 'recipe'; recipe?: Recipe }
+  | { type: 'recipe'; recipe?: Recipe; shared?: SharedLink }
   | { type: 'detail'; id: string }
   | { type: 'restore'; recipes: Recipe[] }
   | null
@@ -192,20 +194,22 @@ function PhotoInput({
 
 function RecipeForm({
   initial,
+  shared,
   recipes,
   onSave,
   onClose,
   onOpen,
 }: {
   initial?: Recipe
+  shared?: SharedLink
   recipes: Recipe[]
   onSave: (recipe: Recipe, previous?: string) => Promise<void>
   onClose: () => void
   onOpen: (id: string) => void
 }) {
   const [kind, setKind] = useState<'link' | 'paper'>(initial?.kind || 'link')
-  const [title, setTitle] = useState(initial?.title || '')
-  const [url, setUrl] = useState(initial?.url || '')
+  const [title, setTitle] = useState(initial?.title || shared?.title || '')
+  const [url, setUrl] = useState(initial?.url || shared?.url || '')
   const [ingredients, setIngredients] = useState(initial?.ingredients.join('、') || '')
   const [note, setNote] = useState(initial?.note || '')
   const [source, setSource] = useState(initial?.source || '')
@@ -635,7 +639,10 @@ export default function App() {
       return 'medium'
     }
   })
-  const [modal, setModal] = useState<ModalState>(null)
+  const [modal, setModal] = useState<ModalState>(() => {
+    const shared = takeSharedLink(window.location, window.history)
+    return shared ? { type: 'recipe', shared } : null
+  })
   const [lightbox, setLightbox] = useState<Photo>()
   const [toast, setToast] = useState('')
   const [settingsError, setSettingsError] = useState('')
@@ -1126,6 +1133,25 @@ export default function App() {
                       )}
                     </section>
                     <section className="settings-card">
+                      <LinkIcon className="setting-icon" />
+                      <h2>iPhoneの共有から登録</h2>
+                      <p>
+                        ショートカットを追加すると、SafariやChromeなどの「共有」からレシピのURLを登録画面へ送れます。
+                      </p>
+                      <a
+                        className="secondary"
+                        href={IOS_SHORTCUT_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        ショートカットを追加
+                        <ArrowUpRight size={18} aria-hidden="true" />
+                      </a>
+                      <p className="fineprint">
+                        iPhoneでリンクを開き、「ショートカットを入手」から追加してください。登録したレシピは、開いたブラウザに保存されます。
+                      </p>
+                    </section>
+                    <section className="settings-card">
                       <BookOpen className="setting-icon" />
                       <h2>ホーム画面から、すぐに</h2>
                       <p>
@@ -1160,6 +1186,7 @@ export default function App() {
         <RecipeForm
           key={modal.recipe?.id || 'new'}
           initial={modal.recipe}
+          shared={modal.shared}
           recipes={recipes}
           onClose={() => setModal(null)}
           onSave={save}

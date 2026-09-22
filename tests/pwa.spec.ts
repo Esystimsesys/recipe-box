@@ -50,6 +50,11 @@ test('PWAの配信元を停止しても再表示・端末内の編集ができ�
     const response = await context.request.get(new URL(manifest!, origin).href)
     const data = await response.json()
     expect(data.display).toBe('standalone')
+    expect(data.share_target).toEqual({
+      action: './?share_target=1',
+      method: 'GET',
+      params: { title: 'title', text: 'text', url: 'url' },
+    })
     expect(data.icons.some((icon: { sizes: string }) => icon.sizes === '512x512')).toBeTruthy()
     await page.reload()
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBeTruthy()
