@@ -129,6 +129,7 @@ test('リンクを保存し、横断検索・独立した絞り込み・編集�
     'true',
   )
   const filterRow = page.locator('.filter-row')
+  await expect(filterRow.getByRole('button')).toHaveText(['すべて', 'お気に入り', '作った'])
   const cookedFilter = filterRow.getByRole('button', { name: '作った', exact: true })
   const favoriteFilter = filterRow.getByRole('button', { name: 'お気に入り', exact: true })
   await cookedFilter.click()
@@ -346,6 +347,8 @@ test('サイドバーの開閉状態を再読み込み後も維持する', async
     'aria-pressed',
     'true',
   )
+  await page.getByRole('button', { name: '一覧に戻る' }).click()
+  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
   await page.getByRole('button', { name: 'メニューを開く' }).click()
   await page
     .locator('#main-sidebar')

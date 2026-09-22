@@ -911,8 +911,9 @@ export default function App() {
           <div className="topbar-actions">
             <button
               className="icon-button"
-              aria-label="設定を開く"
-              onClick={() => setPage('settings')}
+              aria-label={page === 'settings' ? '一覧に戻る' : '設定を開く'}
+              title={page === 'settings' ? '一覧に戻る' : '設定を開く'}
+              onClick={() => setPage(page === 'settings' ? 'recipes' : 'settings')}
             >
               <Settings size={19} />
             </button>
@@ -958,16 +959,6 @@ export default function App() {
                       すべて
                     </button>
                     <button
-                      className={`filter ${filters.cooked ? 'active' : ''}`}
-                      aria-pressed={filters.cooked}
-                      onClick={() =>
-                        setFilters((current) => ({ ...current, cooked: !current.cooked }))
-                      }
-                    >
-                      <CookingPot size={16} aria-hidden="true" />
-                      作った
-                    </button>
-                    <button
                       className={`filter ${filters.favorites ? 'active' : ''}`}
                       aria-pressed={filters.favorites}
                       onClick={() =>
@@ -976,6 +967,16 @@ export default function App() {
                     >
                       <Heart size={16} aria-hidden="true" />
                       お気に入り
+                    </button>
+                    <button
+                      className={`filter ${filters.cooked ? 'active' : ''}`}
+                      aria-pressed={filters.cooked}
+                      onClick={() =>
+                        setFilters((current) => ({ ...current, cooked: !current.cooked }))
+                      }
+                    >
+                      <CookingPot size={16} aria-hidden="true" />
+                      作った
                     </button>
                   </div>
                   <div className="results-heading">
