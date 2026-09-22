@@ -72,15 +72,6 @@ async function closeDialog(page: Page, name: string) {
   await expect(dialog).toBeHidden()
 }
 
-async function navigate(page: Page, label: 'レシピ帳') {
-  const accessibleName = /^レシピ帳(?:\s+\d+)?$/u
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: accessibleName })
-    .filter({ visible: true })
-    .click()
-}
-
 async function openSettings(page: Page) {
   await page.getByRole('button', { name: '設定を開く' }).click()
   await expect(page.getByRole('heading', { name: /レシピ帳の設定/ })).toBeVisible()
@@ -213,7 +204,7 @@ test('バックアップを別コンテキストへ復元し、重複を上書�
   await restoreDialog.getByRole('button', { name: '取り込む' }).click()
   await expect(restored.getByRole('status')).toContainText('2件のレシピを取り込みました')
 
-  await navigate(restored, 'レシピ帳')
+  await restored.getByRole('button', { name: '一覧に戻る' }).click()
   await restored.getByRole('button', { name: /祖母の煮物を開く/ }).click()
   const paperDetail = restored.getByRole('dialog', { name: 'レシピ' })
   await expect(paperDetail.getByAltText('レシピ画像 1')).toBeVisible()
@@ -261,7 +252,7 @@ test('バックアップを別コンテキストへ復元し、重複を上書�
   await expect(restored.getByRole('alert')).toContainText('未対応の項目です')
   await expect(restored.getByText('2 レシピ', { exact: true })).toBeVisible()
 
-  await navigate(restored, 'レシピ帳')
+  await restored.getByRole('button', { name: '一覧に戻る' }).click()
   await expect(restored.getByRole('button', { name: /復元後に変更したレシピを開く/ })).toBeVisible()
   await expect(restored.locator('.recipe-card')).toHaveCount(2)
   await restoreContext.close()
@@ -325,35 +316,28 @@ test('YouTubeのURLからタイトルとプレビュー画像を取得する', a
   )
 })
 
-test('サイドバーの開閉状態を再読み込み後も維持する', async ({ page }) => {
+test('上部のブランドからトップへ戻り、設定を開閉できる', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
-  await page.locator('#main-sidebar').getByRole('button', { name: 'メニューを閉じる' }).click()
-  await expect(page.locator('.app-shell')).toHaveClass(/\bsidebar-closed\b/u)
-  await expect(page.getByRole('button', { name: 'メニューを開く' })).toBeVisible()
+  const brand = page.getByRole('link', { name: 'ひとさじ トップへ' })
+  await expect(brand).toHaveAttribute('href', '/')
+  await expect(brand.locator('.brand-mark')).toBeVisible()
+  await expect(brand).toContainText('わたしのレシピ帳')
+  await expect(page.locator('#main-sidebar')).toHaveCount(0)
+  await openSettings(page)
+  await brand.click()
+  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
 
-  await page.reload()
-  await expect(page.locator('.app-shell')).toHaveClass(/\bsidebar-closed\b/u)
-  await page.getByRole('button', { name: 'メニューを開く' }).click()
-  await expect(page.locator('.app-shell')).not.toHaveClass(/\bsidebar-closed\b/u)
-  await expect(page.getByRole('button', { name: 'メニューを閉じる' })).toBeVisible()
-
-  await expect(page.getByRole('link', { name: 'ひとさじ トップへ' })).toHaveAttribute('href', '/')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload()
-  await expect(page.getByRole('navigation', { name: 'モバイルメニュー' })).toHaveCount(0)
+  await expect(brand).toBeVisible()
+  await expect(page.locator('#main-sidebar')).toHaveCount(0)
   await openSettings(page)
   await expect(page.getByRole('button', { name: '中', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
   await page.getByRole('button', { name: '一覧に戻る' }).click()
-  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
-  await page.getByRole('button', { name: 'メニューを開く' }).click()
-  await page
-    .locator('#main-sidebar')
-    .getByRole('button', { name: /^レシピ帳(?:\s+\d+)?$/u })
-    .click()
   await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
 })
 

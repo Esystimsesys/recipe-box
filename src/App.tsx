@@ -21,8 +21,6 @@ import {
   HardDrive,
   RefreshCw,
   CookingPot,
-  PanelLeftClose,
-  PanelLeftOpen,
   Grid2X2,
 } from 'lucide-react'
 import {
@@ -624,33 +622,6 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [page, setPage] = useState<Page>('recipes')
-  const [sidebarClosed, setSidebarClosed] = useState(() => {
-    try {
-      if (window.matchMedia('(max-width: 900px)').matches) return true
-      return localStorage.getItem('hitosaji-sidebar-closed') === 'true'
-    } catch {
-      return false
-    }
-  })
-  function toggleSidebar() {
-    setSidebarClosed((value) => {
-      const next = !value
-      try {
-        if (!window.matchMedia('(max-width: 900px)').matches) {
-          localStorage.setItem('hitosaji-sidebar-closed', String(next))
-        }
-      } catch {}
-      return next
-    })
-  }
-  useEffect(() => {
-    const narrowScreen = window.matchMedia('(max-width: 900px)')
-    const closeSidebarOnNarrowScreen = (event: MediaQueryListEvent) => {
-      if (event.matches) setSidebarClosed(true)
-    }
-    narrowScreen.addEventListener('change', closeSidebarOnNarrowScreen)
-    return () => narrowScreen.removeEventListener('change', closeSidebarOnNarrowScreen)
-  }, [])
   const [filters, setFilters] = useState({ cooked: false, favorites: false })
   const [query, setQuery] = useState('')
   const [recipeLayout, setRecipeLayout] = useState<RecipeLayout>(() => {
@@ -771,27 +742,6 @@ export default function App() {
         : 'お気に入り'
   const selected =
     modal?.type === 'detail' ? recipes.find((recipe) => recipe.id === modal.id) : undefined
-  const navItems: { page: Page; label: string; icon: typeof BookOpen }[] = [
-    { page: 'recipes', label: 'レシピ帳', icon: BookOpen },
-    { page: 'settings', label: '設定', icon: Settings },
-  ]
-  function navigation() {
-    return navItems.map((item) => (
-      <button
-        key={item.page}
-        className={page === item.page ? 'active' : ''}
-        aria-current={page === item.page ? 'page' : undefined}
-        onClick={() => {
-          setPage(item.page)
-          if (window.matchMedia('(max-width: 900px)').matches) setSidebarClosed(true)
-        }}
-      >
-        <item.icon size={21} />
-        <span>{item.label}</span>
-        {item.page === 'recipes' && <span className="nav-count">{recipes.length}</span>}
-      </button>
-    ))
-  }
   async function backup() {
     setBusy(true)
     setSettingsError('')
@@ -822,69 +772,21 @@ export default function App() {
     }
   }
   return (
-    <div className={`app-shell ${sidebarClosed ? 'sidebar-closed' : ''}`}>
+    <div className="app-shell">
       <a className="skip-link" href="#main-content">
         本文へ移動
       </a>
-      <aside className="sidebar" id="main-sidebar">
-        <div className="sidebar-header">
-          <a className="brand" href={import.meta.env.BASE_URL} aria-label="ひとさじ ホーム">
-            <span className="brand-mark">
-              <CookingPot size={25} />
-            </span>
-            <div>
-              <strong>ひとさじ</strong>
-              <span>わたしのレシピ帳</span>
-            </div>
-          </a>
-          <button
-            className="icon-button sidebar-close"
-            aria-label="メニューを閉じる"
-            aria-expanded="true"
-            aria-controls="main-sidebar"
-            onClick={toggleSidebar}
-          >
-            <PanelLeftClose size={20} />
-          </button>
-        </div>
-        <nav className="nav-list" aria-label="メインメニュー">
-          {navigation()}
-        </nav>
-        <p className="sidebar-storage">
-          <HardDrive size={14} />
-          このブラウザに保存
-        </p>
-      </aside>
-      {!sidebarClosed && (
-        <button
-          type="button"
-          className="sidebar-scrim"
-          aria-label="メニューを閉じる"
-          onClick={toggleSidebar}
-        />
-      )}
       <div className="workspace">
         <header className="topbar">
-          <div className="topbar-brand">
-            {sidebarClosed && (
-              <button
-                className="icon-button sidebar-toggle"
-                aria-label="メニューを開く"
-                aria-expanded="false"
-                aria-controls="main-sidebar"
-                onClick={toggleSidebar}
-              >
-                <PanelLeftOpen size={20} />
-              </button>
-            )}
-            <a
-              className="service-name"
-              href={import.meta.env.BASE_URL}
-              aria-label="ひとさじ トップへ"
-            >
-              ひとさじ
-            </a>
-          </div>
+          <a className="brand" href={import.meta.env.BASE_URL} aria-label="ひとさじ トップへ">
+            <span className="brand-mark" aria-hidden="true">
+              <CookingPot size={25} />
+            </span>
+            <span className="brand-copy">
+              <strong>ひとさじ</strong>
+              <span>わたしのレシピ帳</span>
+            </span>
+          </a>
           {page === 'recipes' && (
             <div className="search-field topbar-search">
               <Search size={18} aria-hidden="true" />
