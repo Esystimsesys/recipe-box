@@ -884,6 +884,18 @@ textarea:disabled {
   break-inside: avoid;
 }
 
+.settings-fetch {
+  margin-top: 22px;
+}
+
+.settings-fetch .settings-action > button + button {
+  margin: 8px 0 0 8px;
+}
+
+.settings-fetch > .fineprint {
+  margin-top: 22px;
+}
+
 .settings-card-head {
   display: flex;
   align-items: center;

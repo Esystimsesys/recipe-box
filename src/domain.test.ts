@@ -230,6 +230,20 @@ describe('backup validation', () => {
     expect(exportBackup([restored]).recipes[0]).not.toHaveProperty('wantToCook')
   })
 
+  it('自動取得と手入力の区別をバックアップに保存し、旧データの区別は推測しない', () => {
+    const automatic = sampleRecipe({ titleSource: 'auto', contentSource: 'manual' })
+    expect(parseBackup(exportBackup([automatic]))[0]).toMatchObject({
+      titleSource: 'auto',
+      contentSource: 'manual',
+    })
+    const legacy = normalizeStoredRecipe(sampleRecipe())
+    expect(legacy.titleSource).toBeUndefined()
+    expect(legacy.contentSource).toBeUndefined()
+    expect(() =>
+      parseBackup(exportBackup([sampleRecipe({ titleSource: 'unknown' as 'auto' })])),
+    ).toThrow(/titleSource/)
+  })
+
   it('v2の画像URLは認証情報なしのHTTPSだけを許可する', () => {
     expect(() =>
       parseBackup(exportBackup([sampleRecipe({ imageUrl: 'http://images.example.com/a.jpg' })])),

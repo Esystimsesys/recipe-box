@@ -67,9 +67,21 @@ function needsSourceContent(recipe: Recipe): boolean {
   if (recipe.kind !== 'link' || !recipe.url) return false
   const sourceKind = sourceContentKind(recipe.url)
   if (sourceKind === 'description')
-    return !recipe.searchText?.trim() || isGenericYouTubeDescription(recipe.searchText || '')
+    return (
+      !recipe.searchText?.trim() ||
+      (recipe.contentSource !== 'manual' && isGenericYouTubeDescription(recipe.searchText || ''))
+    )
   if (sourceKind === 'ingredients') return recipe.ingredients.length === 0
   return false
+}
+function canRefreshSourceContent(recipe: Recipe): boolean {
+  return (
+    needsSourceContent(recipe) ||
+    (recipe.kind === 'link' &&
+      !!recipe.url &&
+      recipe.contentSource === 'auto' &&
+      sourceContentKind(recipe.url) !== 'none')
+  )
 }
 const ORDER_LABELS: Record<RecipeOrder, string> = {
   added: '最近追加した順',
@@ -287,6 +299,8 @@ function RecipeForm({
   const lookupGeneration = useRef(0)
   const automaticTitle = useRef('')
   const automaticContent = useRef('')
+  const titleEdited = useRef(false)
+  const contentEdited = useRef(false)
   let isYouTubeInput = false
   if (kind === 'link' && url) {
     try {
@@ -391,13 +405,40 @@ function RecipeForm({
       const isYouTube = kind === 'link' && sourceLabel(cleanUrl) === 'YouTube'
       const fetchedContent = metadata.description || metadata.ingredients?.join('\n') || ''
       const content = (isYouTube ? searchText : ingredients).trim() || fetchedContent
+      const savedTitle = title.trim() || metadata.title
+      const titleSource =
+        kind === 'link' && savedTitle
+          ? titleEdited.current
+            ? 'manual'
+            : initial && !urlChanged && title.trim() === initial.title
+              ? initial.titleSource || 'manual'
+              : savedTitle === automaticTitle.current || (!title.trim() && !!metadata.title)
+                ? 'auto'
+                : 'manual'
+          : 'manual'
+      const existingContent = isYouTube
+        ? initial?.searchText || ''
+        : initial?.ingredients.join('、') || ''
+      const contentSource =
+        kind === 'link' && content
+          ? contentEdited.current
+            ? 'manual'
+            : initial && !urlChanged && (isYouTube ? searchText : ingredients) === existingContent
+              ? initial.contentSource || 'manual'
+              : content === automaticContent.current ||
+                  (!(isYouTube ? searchText : ingredients).trim() && !!fetchedContent)
+                ? 'auto'
+                : 'manual'
+          : 'manual'
       const recipe: Recipe = {
         id: initial?.id || newId(),
         kind,
-        title: title.trim() || metadata.title,
+        title: savedTitle,
+        titleSource,
         url: cleanUrl,
         ingredients: isYouTube ? initial?.ingredients || [] : parseIngredients(content),
         searchText: isYouTube ? content.slice(0, RECIPE_LIMITS.searchText) : '',
+        contentSource,
         note: note.trim(),
         source: kind === 'link' ? sourceLabel(cleanUrl) : source.trim(),
         photos,
@@ -502,6 +543,7 @@ function RecipeForm({
                 required={kind === 'paper' && !paperPhotos.length}
                 value={title}
                 onChange={(event) => {
+                  titleEdited.current = true
                   automaticTitle.current = ''
                   setTitle(event.target.value)
                 }}
@@ -516,6 +558,7 @@ function RecipeForm({
                 rows={2}
                 value={isYouTubeInput ? searchText : ingredients}
                 onChange={(event) => {
+                  contentEdited.current = true
                   automaticContent.current = ''
                   if (isYouTubeInput) setSearchText(event.target.value)
                   else setIngredients(event.target.value)
@@ -597,7 +640,7 @@ const previewRequests = new Map<string, Promise<LinkMetadata>>()
 
 function loadPreview(url: string, refresh = false): Promise<LinkMetadata> {
   if (refresh || !previewRequests.has(url)) {
-    const request = fetchLinkMetadata(url)
+    const request = fetchLinkMetadata(url, refresh)
     previewRequests.set(url, request)
     request.then((metadata) => {
       // 画像だけの代替結果でタイトル取得の失敗を固定しない。
@@ -981,14 +1024,17 @@ export default function App() {
     await saveRecipe(changed({ ...recipe, [field]: !recipe[field] }), recipe.updatedAt)
     await afterWrite('変更しました')
   }
-  async function refreshMissingTitles() {
+  async function refreshMissingTitles(includeAuto = false) {
     setBusy(true)
     setSettingsError('')
     setTitleRefresh(undefined)
     try {
       // Read the latest records before starting; never replace a title entered in another tab.
       const candidates = (await listRecipes()).filter(
-        (recipe) => recipe.kind === 'link' && recipe.url && !recipe.title.trim(),
+        (recipe) =>
+          recipe.kind === 'link' &&
+          recipe.url &&
+          (!recipe.title.trim() || (includeAuto && recipe.titleSource === 'auto')),
       )
       let updated = 0
       let failed = 0
@@ -997,12 +1043,15 @@ export default function App() {
         await Promise.all(
           candidates.slice(index, index + 3).map(async (recipe) => {
             try {
-              const metadata = await fetchLinkMetadata(recipe.url)
+              const metadata = await fetchLinkMetadata(recipe.url, includeAuto)
               if (!metadata.title) {
                 failed++
                 return
               }
-              await saveRecipe(changed({ ...recipe, title: metadata.title }), recipe.updatedAt)
+              await saveRecipe(
+                changed({ ...recipe, title: metadata.title, titleSource: 'auto' }),
+                recipe.updatedAt,
+              )
               updated++
             } catch {
               // A failed lookup or concurrent edit leaves the existing record untouched.
@@ -1033,12 +1082,14 @@ export default function App() {
       setBusy(false)
     }
   }
-  async function refreshMissingContent() {
+  async function refreshMissingContent(includeAuto = false) {
     setBusy(true)
     setSettingsError('')
     setContentRefresh(undefined)
     try {
-      const candidates = (await listRecipes()).filter(needsSourceContent)
+      const candidates = (await listRecipes()).filter(
+        includeAuto ? canRefreshSourceContent : needsSourceContent,
+      )
       let updated = 0
       let failed = 0
       setContentRefresh({ done: 0, total: candidates.length, updated, failed, finished: false })
@@ -1046,7 +1097,7 @@ export default function App() {
         await Promise.all(
           candidates.slice(index, index + 3).map(async (recipe) => {
             try {
-              const metadata = await fetchLinkMetadata(recipe.url)
+              const metadata = await fetchLinkMetadata(recipe.url, includeAuto)
               const sourceKind = sourceContentKind(recipe.url)
               if (sourceKind === 'description') {
                 const description =
@@ -1055,14 +1106,20 @@ export default function App() {
                   failed++
                   return
                 }
-                await saveRecipe(changed({ ...recipe, searchText: description }), recipe.updatedAt)
+                await saveRecipe(
+                  changed({ ...recipe, searchText: description, contentSource: 'auto' }),
+                  recipe.updatedAt,
+                )
               } else {
                 const ingredients = parseIngredients(metadata.ingredients?.join('\n') || '')
                 if (!ingredients.length) {
                   failed++
                   return
                 }
-                await saveRecipe(changed({ ...recipe, ingredients }), recipe.updatedAt)
+                await saveRecipe(
+                  changed({ ...recipe, ingredients, contentSource: 'auto' }),
+                  recipe.updatedAt,
+                )
               }
               updated++
             } catch {
@@ -1123,6 +1180,12 @@ export default function App() {
     (recipe) => recipe.kind === 'link' && recipe.url && !recipe.title.trim(),
   ).length
   const missingContentCount = recipes.filter(needsSourceContent).length
+  const refreshTitleCount = recipes.filter(
+    (recipe) => recipe.kind === 'link' && !!recipe.url && recipe.titleSource === 'auto',
+  ).length
+  const refreshContentCount = recipes.filter(
+    (recipe) => recipe.contentSource === 'auto' && canRefreshSourceContent(recipe),
+  ).length
   const filteredTitle = allRecipesSelected
     ? '集めたレシピ'
     : filters.cooked && filters.favorites
@@ -1466,55 +1529,6 @@ export default function App() {
                           <span>使用量 約{(storage.usage / 1024 / 1024).toFixed(1)} MB</span>
                         )}
                       </div>
-                      <div className="settings-divider" />
-                      <div className="settings-action">
-                        <h3>レシピ名をまとめて取得</h3>
-                        <p>
-                          名前が空欄のURLレシピを取得します。入力済みの名前は変更しません。対象は
-                          {missingTitleCount}件です。
-                        </p>
-                        <button
-                          className="secondary"
-                          disabled={busy || missingTitleCount === 0}
-                          onClick={() => void refreshMissingTitles()}
-                        >
-                          <RefreshCw size={18} />
-                          {titleRefresh && !titleRefresh.finished
-                            ? `取得中 ${titleRefresh.done}/${titleRefresh.total}件`
-                            : 'レシピ名を一括取得'}
-                        </button>
-                        {titleRefresh && (
-                          <p className="fineprint" role="status">
-                            {titleRefresh.finished
-                              ? `完了：${titleRefresh.updated}件を更新、${titleRefresh.failed}件は更新できませんでした。`
-                              : `${titleRefresh.done}/${titleRefresh.total}件を確認中…`}
-                          </p>
-                        )}
-                      </div>
-                      <div className="settings-action">
-                        <h3>材料などをまとめて取得</h3>
-                        <p>
-                          料理サイトの材料とYouTubeの概要欄を、空欄の記録に追加します。誤って保存されたYouTubeの共通案内文も修正します。手入力した内容は変更しません。対象は
-                          {missingContentCount}件です。
-                        </p>
-                        <button
-                          className="secondary"
-                          disabled={busy || missingContentCount === 0}
-                          onClick={() => void refreshMissingContent()}
-                        >
-                          <RefreshCw size={18} />
-                          {contentRefresh && !contentRefresh.finished
-                            ? `取得中 ${contentRefresh.done}/${contentRefresh.total}件`
-                            : '材料などを一括取得'}
-                        </button>
-                        {contentRefresh && (
-                          <p className="fineprint" role="status">
-                            {contentRefresh.finished
-                              ? `完了：${contentRefresh.updated}件を更新、${contentRefresh.failed}件は更新できませんでした。`
-                              : `${contentRefresh.done}/${contentRefresh.total}件を確認中…`}
-                          </p>
-                        )}
-                      </div>
                       <div className="settings-action">
                         <h3>書き出す</h3>
                         <button className="primary" disabled={busy} onClick={backup}>
@@ -1659,6 +1673,79 @@ export default function App() {
                       <p className="fineprint">ひとさじ v{version}</p>
                     </section>
                   </div>
+                  <section className="settings-card settings-fetch">
+                    <div className="settings-card-head">
+                      <RefreshCw className="setting-icon" aria-hidden="true" />
+                      <h2>情報の取得</h2>
+                    </div>
+                    <div className="settings-action">
+                      <h3>レシピ名をまとめて取得</h3>
+                      <p>
+                        名前が空欄のURLレシピを取得します。入力済みの名前は変更しません。対象は
+                        {missingTitleCount}件です。
+                      </p>
+                      <button
+                        className="secondary"
+                        disabled={busy || missingTitleCount === 0}
+                        onClick={() => void refreshMissingTitles()}
+                      >
+                        <RefreshCw size={18} />
+                        {titleRefresh && !titleRefresh.finished
+                          ? `取得中 ${titleRefresh.done}/${titleRefresh.total}件`
+                          : 'レシピ名を一括取得'}
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={busy || refreshTitleCount === 0}
+                        onClick={() => void refreshMissingTitles(true)}
+                      >
+                        <RefreshCw size={18} />
+                        レシピ名を再取得（{refreshTitleCount}件）
+                      </button>
+                      {titleRefresh && (
+                        <p className="fineprint" role="status">
+                          {titleRefresh.finished
+                            ? `完了：${titleRefresh.updated}件を更新、${titleRefresh.failed}件は更新できませんでした。`
+                            : `${titleRefresh.done}/${titleRefresh.total}件を確認中…`}
+                        </p>
+                      )}
+                    </div>
+                    <div className="settings-action">
+                      <h3>材料などをまとめて取得</h3>
+                      <p>
+                        料理サイトの材料とYouTubeの概要欄を、空欄の記録に追加します。誤って保存されたYouTubeの共通案内文も修正します。手入力した内容は変更しません。対象は
+                        {missingContentCount}件です。
+                      </p>
+                      <button
+                        className="secondary"
+                        disabled={busy || missingContentCount === 0}
+                        onClick={() => void refreshMissingContent()}
+                      >
+                        <RefreshCw size={18} />
+                        {contentRefresh && !contentRefresh.finished
+                          ? `取得中 ${contentRefresh.done}/${contentRefresh.total}件`
+                          : '材料などを一括取得'}
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={busy || refreshContentCount === 0}
+                        onClick={() => void refreshMissingContent(true)}
+                      >
+                        <RefreshCw size={18} />
+                        材料などを再取得（{refreshContentCount}件）
+                      </button>
+                      {contentRefresh && (
+                        <p className="fineprint" role="status">
+                          {contentRefresh.finished
+                            ? `完了：${contentRefresh.updated}件を更新、${contentRefresh.failed}件は更新できませんでした。`
+                            : `${contentRefresh.done}/${contentRefresh.total}件を確認中…`}
+                        </p>
+                      )}
+                    </div>
+                    <p className="fineprint">
+                      再取得は自動取得した情報が対象です。手入力した内容と、取得元を判別できない以前の入力済みデータは保護します。
+                    </p>
+                  </section>
                 </>
               )}
             </>

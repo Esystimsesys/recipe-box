@@ -981,6 +981,34 @@ test.describe('タイトル取得の回復', () => {
       await dialog.getByRole('button', { name: '保存する' }).click()
       await closeDialog(page, 'レシピ')
     }
+    // These records were saved before the app recorded whether text came from a person.
+    await page.evaluate(async () => {
+      const request = indexedDB.open('hitosaji', 1)
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      const tx = db.transaction('recipes', 'readwrite')
+      const store = tx.objectStore('recipes')
+      const all = await new Promise<Array<{ id: string; url: string; contentSource?: string }>>(
+        (resolve, reject) => {
+          const get = store.getAll()
+          get.onsuccess = () => resolve(get.result)
+          get.onerror = () => reject(get.error)
+        },
+      )
+      for (const recipe of all.filter(
+        (item) => item.url.includes('goodvideo12') || item.url.includes('missingvid1'),
+      )) {
+        delete recipe.contentSource
+        store.put(recipe)
+      }
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      })
+      db.close()
+    })
     const endpoint = `${new URL(METADATA_ENDPOINT).origin}/**`
     await page.route(endpoint, (route) => {
       const target = new URL(route.request().url()).searchParams.get('url') || ''
@@ -999,6 +1027,7 @@ test.describe('タイトル取得の回復', () => {
           : { title: 'スープ', imageUrl: '', ingredients: ['かぼちゃ 200g'], description: '' },
       })
     })
+    await page.reload()
     await openSettings(page)
     const contentAction = page.locator('.settings-action').filter({
       has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
@@ -1020,6 +1049,75 @@ test.describe('タイトル取得の回復', () => {
     await expect(page.locator('.recipe-card')).toHaveCount(0)
     await page.getByRole('textbox', { name: 'レシピを検索' }).fill('手入力の材料')
     await expect(page.locator('.recipe-card')).toHaveCount(1)
+  })
+
+  test('取得済みの情報を更新し、手入力した情報を保護する', async ({ page }) => {
+    test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
+    let refreshed = false
+    let uncachedCalls = 0
+    await page.route(`${new URL(METADATA_ENDPOINT).origin}/**`, (route) => {
+      const requestUrl = new URL(route.request().url())
+      if (requestUrl.searchParams.get('refresh') === '1') uncachedCalls++
+      const target = requestUrl.searchParams.get('url') || ''
+      return route.fulfill({
+        headers: { 'Cache-Control': 'no-store' },
+        json: {
+          title: refreshed ? '新しい自動タイトル' : '古い自動タイトル',
+          imageUrl: '',
+          ingredients: [refreshed ? '新しい自動材料' : '古い自動材料'],
+          description: '',
+          ...(target.includes('manual') ? { title: '旧手動候補' } : {}),
+        },
+      })
+    })
+    await openApp(page)
+    let dialog = await openNewRecipe(page)
+    await dialog.getByLabel('レシピのURL').fill('https://example.com/auto')
+    await dialog.getByLabel('レシピ名').click()
+    await expect(dialog.getByLabel('レシピ名')).toHaveValue('古い自動タイトル')
+    await expect(dialog.getByLabel('材料など')).toHaveValue('古い自動材料')
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    await closeDialog(page, 'レシピ')
+
+    dialog = await openNewRecipe(page)
+    await dialog.getByLabel('レシピのURL').fill('https://example.com/manual')
+    await dialog.getByLabel('レシピ名').click()
+    await expect(dialog.getByLabel('レシピ名')).toHaveValue('旧手動候補')
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    const detail = page.getByRole('dialog', { name: 'レシピ' })
+    await detail.getByRole('button', { name: '編集' }).click()
+    dialog = page.getByRole('dialog', { name: 'レシピを編集' })
+    await dialog.getByLabel('レシピ名').fill('手入力したタイトル')
+    await dialog.getByLabel('材料など').fill('手入力した材料')
+    await dialog.getByRole('button', { name: '保存する' }).click()
+    await closeDialog(page, 'レシピ')
+
+    refreshed = true
+    await openSettings(page)
+    const fetchArea = page.locator('.settings-fetch')
+    await expect(fetchArea.getByRole('heading', { name: '情報の取得' })).toBeVisible()
+    const backupBox = await page.getByRole('heading', { name: '記録とバックアップ' }).boundingBox()
+    const fetchBox = await fetchArea.boundingBox()
+    expect(fetchBox!.y).toBeGreaterThan(backupBox!.y + backupBox!.height)
+    await expect(fetchArea.getByRole('button', { name: 'レシピ名を再取得（1件）' })).toBeEnabled()
+    await fetchArea.getByRole('button', { name: 'レシピ名を再取得（1件）' }).click()
+    const titleAction = fetchArea.locator('.settings-action').filter({
+      has: page.getByRole('heading', { name: 'レシピ名をまとめて取得' }),
+    })
+    await expect(titleAction.getByRole('status')).toContainText('完了：1件を更新')
+    await fetchArea.getByRole('button', { name: '材料などを再取得（1件）' }).click()
+    const contentAction = fetchArea.locator('.settings-action').filter({
+      has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
+    })
+    await expect(contentAction.getByRole('status')).toContainText('完了：1件を更新')
+    expect(uncachedCalls).toBeGreaterThanOrEqual(2)
+    await page.getByRole('button', { name: '一覧に戻る' }).click()
+    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('新しい自動材料')
+    await expect(page.locator('.recipe-card')).toHaveCount(1)
+    await expect(page.locator('.recipe-card')).toContainText('新しい自動タイトル')
+    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('手入力した材料')
+    await expect(page.locator('.recipe-card')).toHaveCount(1)
+    await expect(page.locator('.recipe-card')).toContainText('手入力したタイトル')
   })
 
   test('設定から空欄のレシピ名を一括取得し、入力済みの名前を保つ', async ({ page }) => {

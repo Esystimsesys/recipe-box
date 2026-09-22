@@ -124,6 +124,7 @@ async function request<T>(
   url: string,
   read: (response: Response) => Promise<T>,
   timeoutMs = 5_000,
+  refresh = false,
 ): Promise<T> {
   const controller = new AbortController()
   const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs)
@@ -131,6 +132,7 @@ async function request<T>(
     const response = await fetch(url, {
       credentials: 'omit',
       referrerPolicy: 'strict-origin-when-cross-origin',
+      cache: refresh ? 'no-store' : 'default',
       signal: controller.signal,
     })
     return await read(response)
@@ -139,11 +141,20 @@ async function request<T>(
   }
 }
 
-async function fetchOEmbed(endpoint: string, sourceUrl: string): Promise<LinkMetadata> {
-  const data = await request(endpoint, async (response) => {
-    if (!response.ok) throw new Error('oEmbedを取得できませんでした。')
-    return (await response.json()) as { title?: unknown; thumbnail_url?: unknown }
-  })
+async function fetchOEmbed(
+  endpoint: string,
+  sourceUrl: string,
+  refresh = false,
+): Promise<LinkMetadata> {
+  const data = await request(
+    endpoint,
+    async (response) => {
+      if (!response.ok) throw new Error('oEmbedを取得できませんでした。')
+      return (await response.json()) as { title?: unknown; thumbnail_url?: unknown }
+    },
+    5_000,
+    refresh,
+  )
   return {
     title: cleanText(data.title),
     imageUrl: safeImageUrl(data.thumbnail_url, sourceUrl),
@@ -166,19 +177,24 @@ function xPostId(url: string): string {
   }
 }
 
-async function fetchXPost(url: string): Promise<LinkMetadata> {
+async function fetchXPost(url: string, refresh = false): Promise<LinkMetadata> {
   const id = xPostId(url)
   if (!id) throw new Error('Xの投稿URLではありません。')
-  const data = await request(`https://api.fxtwitter.com/2/status/${id}`, async (response) => {
-    if (!response.ok) throw new Error('Xの投稿情報を取得できませんでした。')
-    return (await response.json()) as {
-      code?: number
-      status?: {
-        text?: unknown
-        media?: { photos?: { url?: unknown }[]; videos?: { thumbnail_url?: unknown }[] }
+  const data = await request(
+    `https://api.fxtwitter.com/2/status/${id}`,
+    async (response) => {
+      if (!response.ok) throw new Error('Xの投稿情報を取得できませんでした。')
+      return (await response.json()) as {
+        code?: number
+        status?: {
+          text?: unknown
+          media?: { photos?: { url?: unknown }[]; videos?: { thumbnail_url?: unknown }[] }
+        }
       }
-    }
-  })
+    },
+    5_000,
+    refresh,
+  )
   if (data.code !== 200) throw new Error('Xの投稿情報を取得できませんでした。')
   return {
     title: cleanText(data.status?.text),
@@ -194,19 +210,28 @@ async function fetchXPost(url: string): Promise<LinkMetadata> {
  * 自前の取得用エンドポイント（worker/ を参照）が設定されていればそこへ問い合わせる。
  * 未設定なら従来どおり直接読みにいき、読めなければタイトルなしで保存を続ける。
  */
-export function metadataProxyUrl(url: string, endpoint = LINK_METADATA_ENDPOINT): string {
+export function metadataProxyUrl(
+  url: string,
+  endpoint = LINK_METADATA_ENDPOINT,
+  refresh = false,
+): string {
   if (!endpoint) return ''
   try {
     const target = new URL(endpoint)
     if (target.protocol !== 'https:' && target.hostname !== 'localhost') return ''
     target.searchParams.set('url', url)
+    if (refresh) target.searchParams.set('refresh', '1')
     return target.toString()
   } catch {
     return ''
   }
 }
 
-async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkMetadata> {
+async function fetchViaProxy(
+  proxyUrl: string,
+  sourceUrl: string,
+  refresh = false,
+): Promise<LinkMetadata> {
   const data = await request(
     proxyUrl,
     async (response) => {
@@ -220,6 +245,7 @@ async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkM
     },
     // Workerの上流タイムアウト8秒に通信分の余裕を加える。
     10_000,
+    refresh,
   )
   return {
     title: cleanText(data.title),
@@ -235,16 +261,21 @@ async function fetchViaProxy(proxyUrl: string, sourceUrl: string): Promise<LinkM
   }
 }
 
-async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
-  const proxyUrl = metadataProxyUrl(url)
-  if (proxyUrl) return await fetchViaProxy(proxyUrl, url)
+async function fetchOpenGraph(url: string, refresh = false): Promise<LinkMetadata> {
+  const proxyUrl = metadataProxyUrl(url, LINK_METADATA_ENDPOINT, refresh)
+  if (proxyUrl) return await fetchViaProxy(proxyUrl, url, refresh)
 
-  const html = await request(url, async (response) => {
-    if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
-      throw new Error('ページ情報を取得できませんでした。')
-    }
-    return await response.text()
-  })
+  const html = await request(
+    url,
+    async (response) => {
+      if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
+        throw new Error('ページ情報を取得できませんでした。')
+      }
+      return await response.text()
+    },
+    5_000,
+    refresh,
+  )
   const document = new DOMParser().parseFromString(html, 'text/html')
   const meta = (selector: string) => document.querySelector<HTMLMetaElement>(selector)?.content
   return {
@@ -259,12 +290,12 @@ async function fetchOpenGraph(url: string): Promise<LinkMetadata> {
   }
 }
 
-export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
+export async function fetchLinkMetadata(url: string, refresh = false): Promise<LinkMetadata> {
   if (instagramEmbedUrl(url)) return { title: '', imageUrl: '' }
   const directImage = directPreviewUrl(url)
   if (xPostId(url)) {
     try {
-      return await fetchXPost(url)
+      return await fetchXPost(url, refresh)
     } catch {
       return { title: '', imageUrl: '' }
     }
@@ -272,10 +303,10 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
   const endpoint = oEmbedUrl(url)
   if (endpoint) {
     try {
-      const embedded = await fetchOEmbed(endpoint, url)
+      const embedded = await fetchOEmbed(endpoint, url, refresh)
       if (sourceIsYouTube(url)) {
         try {
-          const page = await fetchOpenGraph(url)
+          const page = await fetchOpenGraph(url, refresh)
           return {
             ...embedded,
             description: page.description || '',
@@ -292,7 +323,7 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
     }
   }
   try {
-    const metadata = await fetchOpenGraph(url)
+    const metadata = await fetchOpenGraph(url, refresh)
     return { ...metadata, imageUrl: metadata.imageUrl || directImage }
   } catch {
     return { title: '', imageUrl: directImage }

@@ -157,7 +157,7 @@ function httpsImageUrl(value: string, baseUrl: string): string {
   }
 }
 
-async function readMetadata(target: URL): Promise<Metadata> {
+async function readMetadata(target: URL, refresh = false): Promise<Metadata> {
   const youtube = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(
     target.hostname,
   )
@@ -182,7 +182,7 @@ async function readMetadata(target: URL): Promise<Metadata> {
       'User-Agent': USER_AGENT,
     },
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    cf: { cacheTtl: UPSTREAM_CACHE_SECONDS },
+    ...(refresh ? { cache: 'no-store' as const } : { cf: { cacheTtl: UPSTREAM_CACHE_SECONDS } }),
   })
   if (!response.ok || !response.body) return EMPTY
   if (!(response.headers.get('content-type') ?? '').includes('text/html')) return EMPTY
@@ -278,6 +278,7 @@ export default {
       return withCors(jsonResponse({ error: '許可されていない参照元です。' }, 403), origin)
     }
 
+    const refresh = new URL(request.url).searchParams.get('refresh') === '1'
     let target: URL
     try {
       target = readTarget(new URL(request.url).searchParams.get('url'))
@@ -290,12 +291,14 @@ export default {
     const cacheKey = new Request(
       `https://link-metadata.hitosaji.invalid/v${RESULT_CACHE_VERSION}?url=${encodeURIComponent(target.toString())}`,
     )
-    const cached = await cache.match(cacheKey)
-    if (cached) return withCors(cached, origin)
+    if (!refresh) {
+      const cached = await cache.match(cacheKey)
+      if (cached) return withCors(cached, origin)
+    }
 
     let metadata: Metadata
     try {
-      metadata = await readMetadata(target)
+      metadata = await readMetadata(target, refresh)
     } catch (error) {
       // 取得できなくても URL の保存は続けられるため、空の結果として返す。
       console.log(
@@ -308,9 +311,9 @@ export default {
       return withCors(jsonResponse(EMPTY, 200), origin)
     }
 
-    const response = jsonResponse(metadata, 200, RESULT_CACHE_SECONDS)
+    const response = jsonResponse(metadata, 200, refresh ? 0 : RESULT_CACHE_SECONDS)
     if (metadata.title || metadata.imageUrl) {
-      ctx.waitUntil(cache.put(cacheKey, response.clone()))
+      ctx.waitUntil(cache.put(cacheKey, jsonResponse(metadata, 200, RESULT_CACHE_SECONDS)))
     }
     return withCors(response, origin)
   },
