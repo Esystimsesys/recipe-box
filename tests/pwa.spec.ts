@@ -55,7 +55,6 @@ test('PWAの配信元を停止しても再表示・端末内の編集ができ�
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBeTruthy()
     await page.getByRole('button', { name: '追加', exact: true }).click()
     await page.getByLabel('レシピのURL').fill('https://cookpad.com/jp/recipes/123?ref=share#step-2')
-    await page.getByText('名前・材料・写真・メモ（任意）', { exact: true }).click()
     await page.getByLabel('レシピ名', { exact: true }).fill('オフラインのスープ')
     await page.getByRole('button', { name: '保存する', exact: true }).click()
     await expect(page.getByRole('link', { name: '元のレシピを見る' })).toHaveAttribute(
@@ -86,7 +85,6 @@ test('容量不足の保存失敗で入力内容を失わず、保存済みと�
   await page.goto('/')
   await page.getByRole('button', { name: '追加', exact: true }).click()
   await page.getByLabel('レシピのURL').fill('https://example.com/soup')
-  await page.getByText('名前・材料・写真・メモ（任意）', { exact: true }).click()
   await page.getByLabel('レシピ名', { exact: true }).fill('消えてほしくないレシピ')
   await page.getByRole('button', { name: '保存する', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('保存容量が足りません')
@@ -101,7 +99,6 @@ test('別タブで更新された内容を古い編集フォームが上書き�
   await page.goto('/')
   await page.getByRole('button', { name: '追加', exact: true }).click()
   await page.getByLabel('レシピのURL').fill('https://example.com/r')
-  await page.getByText('名前・材料・写真・メモ（任意）', { exact: true }).click()
   await page.getByLabel('レシピ名', { exact: true }).fill('元のレシピ')
   await page.getByRole('button', { name: '保存する', exact: true }).click()
   await page.getByRole('button', { name: '編集', exact: true }).click()
