@@ -89,7 +89,9 @@ describe('sourceLabel', () => {
 describe('sourceContentKind', () => {
   it.each([
     ['https://cookpad.com/jp/recipes/1', 'ingredients'],
-    ['https://youtu.be/abcdefghijk', 'description'],
+    // YouTubeの概要欄は作り方を含むことが多いため取り込まない。
+    ['https://youtu.be/abcdefghijk', 'none'],
+    ['https://www.youtube.com/watch?v=abcdefghijk', 'none'],
     ['https://x.com/a/status/1', 'none'],
     ['https://www.instagram.com/p/a/', 'none'],
     ['https://www.facebook.com/posts/1', 'none'],

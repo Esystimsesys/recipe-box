@@ -345,7 +345,6 @@ test('YouTubeのURLからタイトルとプレビュー画像を取得する', a
   await routeLinkMetadata(page, {
     title: 'フライパンで作る簡単レシピ',
     imageUrl: '',
-    description: '鶏むね肉で作る\n節約料理',
     ingredients: [],
   })
   await page.route('https://www.youtube.com/oembed?**', async (route) => {
@@ -368,34 +367,35 @@ test('YouTubeのURLからタイトルとプレビュー画像を取得する', a
   const detail = page.getByRole('dialog', { name: 'レシピ' })
   await expect(detail.getByRole('heading', { name: 'フライパンで作る簡単レシピ' })).toBeVisible()
   await expect(detail.getByText('YouTube', { exact: true })).toBeVisible()
-  await expect(detail.getByText('鶏むね肉で作る')).toBeVisible()
+  await expect(detail.getByText('材料など')).toHaveCount(0)
   await closeDialog(page, 'レシピ')
-  await page.getByRole('textbox', { name: 'レシピを検索' }).fill('節約料理')
-  await expect(page.locator('.recipe-card')).toHaveCount(1)
   await expect(page.getByRole('img', { name: 'フライパンで作る簡単レシピ' })).toHaveAttribute(
     'src',
     'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
   )
 })
 
-test('YouTubeの共通案内文を概要欄として保存しない', async ({ page }) => {
+test('YouTubeの概要欄は取り込まず、手入力した材料などは保存する', async ({ page }) => {
   test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
-  const generic =
-    'YouTube でお気に入りの動画や音楽を楽しみ、オリジナルのコンテンツをアップロードして友だちや家族、世界中の人たちと共有しましょう。'
-  await routeLinkMetadata(page, {
-    title: '動画のレシピ',
-    imageUrl: '',
-    ingredients: [],
-    description: generic,
-  })
+  const description = '【作り方】1. 鶏むね肉を切る 2. 片栗粉をまぶす'
+  // 概要欄は作り方を含むことが多いため、応答に含まれていても取り込まない。
+  await page.route(`${new URL(METADATA_ENDPOINT).origin}/**`, (route) =>
+    route.fulfill({ json: { title: '動画のレシピ', imageUrl: '', ingredients: [], description } }),
+  )
   await page.route('https://www.youtube.com/oembed?**', (route) =>
     route.fulfill({ json: { title: '動画のレシピ', thumbnail_url: '' } }),
   )
   await openApp(page)
   const dialog = await openNewRecipe(page)
   await dialog.getByLabel('レシピのURL').fill('https://youtu.be/abcdefghijk')
+  await dialog.getByLabel('材料など').fill('鶏むね肉、片栗粉')
   await dialog.getByRole('button', { name: '保存する' }).click()
-  await expect(page.getByRole('dialog', { name: 'レシピ' })).not.toContainText(generic)
+  const detail = page.getByRole('dialog', { name: 'レシピ' })
+  await expect(detail).not.toContainText(description)
+  await expect(detail.getByText('鶏むね肉、片栗粉')).toBeVisible()
+  await closeDialog(page, 'レシピ')
+  await page.getByRole('textbox', { name: 'レシピを検索' }).fill('片栗粉')
+  await expect(page.locator('.recipe-card')).toHaveCount(1)
 })
 
 test('料理サイトの材料を自動で保存し検索できる', async ({ page }) => {
@@ -404,7 +404,6 @@ test('料理サイトの材料を自動で保存し検索できる', async ({ pa
     title: '季節のスープ',
     imageUrl: '',
     ingredients: ['かぼちゃ 200g', '牛乳 100ml'],
-    description: '',
   })
   await openApp(page)
   const dialog = await openNewRecipe(page)
@@ -959,19 +958,18 @@ test('長い共有URLは切断せず保存し、上限超過はエラーとし�
 test.describe('タイトル取得の回復', () => {
   test.use({ serviceWorkers: 'block' })
 
-  test('既存の空欄とYouTube共通の案内文を更新し、手入力は保つ', async ({ page }) => {
+  test('材料などの一括取得はYouTubeを対象にせず、手入力と旧データを残す', async ({ page }) => {
     test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
     await page.route('https://www.youtube.com/oembed?**', (route) =>
       route.fulfill({ json: { title: '動画のレシピ', thumbnail_url: '' } }),
     )
     await openApp(page)
-    const generic =
-      'YouTube でお気に入りの動画や音楽を楽しみ、オリジナルのコンテンツをアップロードして友だちや家族、世界中の人たちと共有しましょう。'
+    const oldDescription = '旧データの概要欄。【作り方】鶏むね肉を切る'
     for (const [url, title, content] of [
       ['https://example.com/soup', 'スープ', ''],
+      ['https://example.com/auto', '自動取得の料理', '古い自動材料'],
       ['https://youtu.be/abcdefghijk', '動画のレシピ', ''],
-      ['https://youtu.be/goodvideo12', '案内文を修正する動画', generic],
-      ['https://youtu.be/missingvid1', '概要欄を取得できない動画', generic],
+      ['https://youtu.be/olddesc1234', '概要欄が残る動画', oldDescription],
       ['https://example.com/manual', '手入力の料理', '手入力の材料'],
     ]) {
       const dialog = await openNewRecipe(page)
@@ -981,7 +979,7 @@ test.describe('タイトル取得の回復', () => {
       await dialog.getByRole('button', { name: '保存する' }).click()
       await closeDialog(page, 'レシピ')
     }
-    // These records were saved before the app recorded whether text came from a person.
+    // 自動取得ぶんと、取得元を記録する前に保存された旧データを用意する。
     await page.evaluate(async () => {
       const request = indexedDB.open('hitosaji', 1)
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -997,10 +995,10 @@ test.describe('タイトル取得の回復', () => {
           get.onerror = () => reject(get.error)
         },
       )
-      for (const recipe of all.filter(
-        (item) => item.url.includes('goodvideo12') || item.url.includes('missingvid1'),
-      )) {
-        delete recipe.contentSource
+      for (const recipe of all) {
+        if (recipe.url.includes('example.com/auto')) recipe.contentSource = 'auto'
+        else if (recipe.url.includes('olddesc1234')) delete recipe.contentSource
+        else continue
         store.put(recipe)
       }
       await new Promise<void>((resolve, reject) => {
@@ -1009,22 +1007,16 @@ test.describe('タイトル取得の回復', () => {
       })
       db.close()
     })
-    const endpoint = `${new URL(METADATA_ENDPOINT).origin}/**`
-    await page.route(endpoint, (route) => {
+    let youtubeLookups = 0
+    await page.route(`${new URL(METADATA_ENDPOINT).origin}/**`, (route) => {
       const target = new URL(route.request().url()).searchParams.get('url') || ''
+      if (target.includes('youtu.be')) youtubeLookups++
       return route.fulfill({
-        json: target.includes('youtu.be')
-          ? {
-              title: '動画のレシピ',
-              imageUrl: '',
-              ingredients: [],
-              description: target.includes('goodvideo12')
-                ? '豆腐の作り置き'
-                : target.includes('missingvid1')
-                  ? ''
-                  : '鶏むね肉の節約料理',
-            }
-          : { title: 'スープ', imageUrl: '', ingredients: ['かぼちゃ 200g'], description: '' },
+        json: {
+          title: '',
+          imageUrl: '',
+          ingredients: [target.includes('example.com/auto') ? '新しい自動材料' : 'かぼちゃ 200g'],
+        },
       })
     })
     await page.reload()
@@ -1032,28 +1024,30 @@ test.describe('タイトル取得の回復', () => {
     const contentAction = page.locator('.settings-action').filter({
       has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
     })
-    await expect(contentAction.getByText('対象は4件です。')).toBeVisible()
-    await contentAction.getByRole('button', { name: '材料などを再取得（2件）' }).click()
+    // 対象は材料が空の料理サイトだけ。YouTubeの2件と手入力は数えない。
+    await expect(contentAction.getByText('対象は1件です。')).toBeVisible()
+    await contentAction.getByRole('button', { name: '材料などを再取得（1件）' }).click()
     await expect(contentAction.getByRole('status')).toContainText(
-      '完了：2件を更新、0件は更新できませんでした。',
+      '完了：1件を更新、0件は更新できませんでした。',
     )
-    await expect(contentAction.getByText('対象は3件です。')).toBeVisible()
     await contentAction.getByRole('button', { name: '材料などを一括取得' }).click()
     await expect(contentAction.getByRole('status')).toContainText(
-      '完了：2件を更新、1件は更新できませんでした。',
+      '完了：1件を更新、0件は更新できませんでした。',
     )
-    await expect(contentAction.getByText('対象は1件です。')).toBeVisible()
+    await expect(contentAction.getByText('対象は0件です。')).toBeVisible()
+    expect(youtubeLookups).toBe(0)
     await page.getByRole('button', { name: '一覧に戻る' }).click()
-    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('かぼちゃ')
-    await expect(page.locator('.recipe-card')).toHaveCount(1)
-    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('節約料理')
-    await expect(page.locator('.recipe-card')).toHaveCount(1)
-    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('作り置き')
-    await expect(page.locator('.recipe-card')).toHaveCount(1)
-    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('お気に入りの動画')
-    await expect(page.locator('.recipe-card')).toHaveCount(0)
-    await page.getByRole('textbox', { name: 'レシピを検索' }).fill('手入力の材料')
-    await expect(page.locator('.recipe-card')).toHaveCount(1)
+    for (const [keyword, count] of [
+      ['かぼちゃ', 1],
+      ['新しい自動材料', 1],
+      ['古い自動材料', 0],
+      ['手入力の材料', 1],
+      // すでに保存された概要欄は消さず、そのまま残す。
+      ['旧データの概要欄', 1],
+    ] as const) {
+      await page.getByRole('textbox', { name: 'レシピを検索' }).fill(keyword)
+      await expect(page.locator('.recipe-card')).toHaveCount(count)
+    }
   })
 
   test('取得済みの情報を更新し、手入力した情報を保護する', async ({ page }) => {
@@ -1070,7 +1064,6 @@ test.describe('タイトル取得の回復', () => {
           title: refreshed ? '新しい自動タイトル' : '古い自動タイトル',
           imageUrl: '',
           ingredients: [refreshed ? '新しい自動材料' : '古い自動材料'],
-          description: '',
           ...(target.includes('manual') ? { title: '旧手動候補' } : {}),
         },
       })

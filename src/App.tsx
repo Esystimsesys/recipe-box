@@ -51,7 +51,6 @@ import {
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 import { takeSharedLink, type SharedLink } from './shared-link'
 import { version } from '../package.json'
-import { isGenericYouTubeDescription } from '../worker/src/extract'
 
 type Page = 'recipes' | 'settings'
 type RecipeLayout = 'small' | 'medium' | 'large' | 'list'
@@ -65,25 +64,11 @@ type RefreshProgress = {
 }
 function needsSourceContent(recipe: Recipe): boolean {
   if (recipe.kind !== 'link' || !recipe.url) return false
-  const sourceKind = sourceContentKind(recipe.url)
-  if (sourceKind === 'description')
-    return (
-      !recipe.searchText?.trim() ||
-      (recipe.contentSource !== 'manual' && isGenericYouTubeDescription(recipe.searchText || ''))
-    )
-  if (sourceKind === 'ingredients') return recipe.ingredients.length === 0
-  return false
+  return sourceContentKind(recipe.url) === 'ingredients' && recipe.ingredients.length === 0
 }
 function canRefreshSourceContent(recipe: Recipe): boolean {
   if (recipe.kind !== 'link' || !recipe.url) return false
-  const sourceKind = sourceContentKind(recipe.url)
-  if (sourceKind === 'none') return false
-  return (
-    recipe.contentSource === 'auto' ||
-    (sourceKind === 'description' &&
-      recipe.contentSource !== 'manual' &&
-      isGenericYouTubeDescription(recipe.searchText || ''))
-  )
+  return sourceContentKind(recipe.url) === 'ingredients' && recipe.contentSource === 'auto'
 }
 const ORDER_LABELS: Record<RecipeOrder, string> = {
   added: '最近追加した順',
@@ -349,11 +334,10 @@ function RecipeForm({
         automaticTitle.current = data.title
         setTitle((current) => current || data.title)
       }
-      const content = data.description || data.ingredients?.join('\n') || ''
+      const content = data.ingredients?.join('\n') || ''
       if (content) {
         automaticContent.current = content
-        if (data.description) setSearchText((current) => current || content)
-        else setIngredients((current) => current || content)
+        setIngredients((current) => current || content)
       }
     } catch {
       // 取得できなくてもURLは保存できる。
@@ -400,12 +384,12 @@ function RecipeForm({
           urlChanged ||
           (!ingredients.trim() && !searchText.trim() && !initial))
       const metadata = !needsMetadata
-        ? { title: '', imageUrl: '', ingredients: [], description: '' }
+        ? { title: '', imageUrl: '', ingredients: [] }
         : lookup?.url === cleanUrl
           ? lookup.data
           : await loadPreview(cleanUrl)
       const isYouTube = kind === 'link' && sourceLabel(cleanUrl) === 'YouTube'
-      const fetchedContent = metadata.description || metadata.ingredients?.join('\n') || ''
+      const fetchedContent = metadata.ingredients?.join('\n') || ''
       const content = (isYouTube ? searchText : ingredients).trim() || fetchedContent
       const savedTitle = title.trim() || metadata.title
       const titleSource =
@@ -565,11 +549,11 @@ function RecipeForm({
                   if (isYouTubeInput) setSearchText(event.target.value)
                   else setIngredients(event.target.value)
                 }}
-                placeholder="材料や概要欄など、検索したい内容"
+                placeholder="材料など、検索したい内容"
                 maxLength={RECIPE_LIMITS.searchText}
               />
               <small>
-                料理サイトは材料、YouTubeは概要欄を自動入力します。作り方は元のページで確認できます。
+                料理サイトの材料は自動入力します。YouTubeは概要欄に作り方が含まれることが多いため取り込まないので、必要な材料だけ書いてください。作り方は元のページで確認できます。
               </small>
             </div>
             {kind === 'paper' && (
@@ -1100,29 +1084,15 @@ export default function App() {
           candidates.slice(index, index + 3).map(async (recipe) => {
             try {
               const metadata = await fetchLinkMetadata(recipe.url, includeAuto)
-              const sourceKind = sourceContentKind(recipe.url)
-              if (sourceKind === 'description') {
-                const description =
-                  metadata.description?.trim().slice(0, RECIPE_LIMITS.searchText) || ''
-                if (!description && !isGenericYouTubeDescription(recipe.searchText || '')) {
-                  failed++
-                  return
-                }
-                await saveRecipe(
-                  changed({ ...recipe, searchText: description, contentSource: 'auto' }),
-                  recipe.updatedAt,
-                )
-              } else {
-                const ingredients = parseIngredients(metadata.ingredients?.join('\n') || '')
-                if (!ingredients.length) {
-                  failed++
-                  return
-                }
-                await saveRecipe(
-                  changed({ ...recipe, ingredients, contentSource: 'auto' }),
-                  recipe.updatedAt,
-                )
+              const ingredients = parseIngredients(metadata.ingredients?.join('\n') || '')
+              if (!ingredients.length) {
+                failed++
+                return
               }
+              await saveRecipe(
+                changed({ ...recipe, ingredients, contentSource: 'auto' }),
+                recipe.updatedAt,
+              )
               updated++
             } catch {
               // A failed lookup or concurrent edit leaves the existing record untouched.
@@ -1713,7 +1683,7 @@ export default function App() {
                     <div className="settings-action">
                       <h3>材料などをまとめて取得</h3>
                       <p>
-                        料理サイトの材料とYouTubeの概要欄を、空欄の記録に追加します。誤って保存されたYouTubeの共通案内文も修正します。手入力した内容は変更しません。対象は
+                        料理サイトの材料を、空欄の記録に追加します。YouTubeの概要欄は取り込みません。手入力した内容は変更しません。対象は
                         {missingContentCount}件です。
                       </p>
                       <button
@@ -1743,7 +1713,7 @@ export default function App() {
                       )}
                     </div>
                     <p className="fineprint">
-                      再取得は自動取得した情報と、旧データに残るYouTubeの共通案内文が対象です。手入力した内容と、取得元を判別できないほかの入力済みデータは保護します。
+                      再取得は自動取得した材料が対象です。手入力した内容と、取得元を判別できないほかの入力済みデータは保護します。
                     </p>
                   </section>
                 </>
