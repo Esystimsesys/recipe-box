@@ -900,6 +900,10 @@ test('URLを変更したら古い自動タイトルを消し、手入力の名�
   await expect(title).toHaveValue('あ'.repeat(300))
   await url.fill('https://youtu.be/second')
   await expect(title).toHaveValue('')
+  // 取得はURL欄から外れた時点で走る。届いてから手入力する。
+  // 入力と取得が重なると、入力した名前が取得結果に置き換わってしまう。
+  await title.focus()
+  await expect(title).toHaveValue('あ'.repeat(300))
   await title.fill('自分のレシピ名')
   await url.fill('https://youtu.be/third')
   await expect(title).toHaveValue('自分のレシピ名')
