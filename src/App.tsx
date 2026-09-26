@@ -33,8 +33,8 @@ import {
   newId,
   normalizeUrl,
   parseBackup,
-  parseIngredients,
   readPhotos,
+  recipeContent,
   sourceContentKind,
   sourceLabel,
   type Photo,
@@ -64,7 +64,7 @@ type RefreshProgress = {
 }
 function needsSourceContent(recipe: Recipe): boolean {
   if (recipe.kind !== 'link' || !recipe.url) return false
-  return sourceContentKind(recipe.url) === 'ingredients' && recipe.ingredients.length === 0
+  return sourceContentKind(recipe.url) === 'ingredients' && !recipeContent(recipe)
 }
 function canRefreshSourceContent(recipe: Recipe): boolean {
   if (recipe.kind !== 'link' || !recipe.url) return false
@@ -269,8 +269,7 @@ function RecipeForm({
   const [kind, setKind] = useState<'link' | 'paper'>(initial?.kind || 'link')
   const [title, setTitle] = useState(initial?.title || shared?.title || '')
   const [url, setUrl] = useState(initial?.url || shared?.url || '')
-  const [ingredients, setIngredients] = useState(initial?.ingredients.join('、') || '')
-  const [searchText, setSearchText] = useState(initial?.searchText || '')
+  const [content, setContent] = useState(initial ? recipeContent(initial) : '')
   const [note, setNote] = useState(initial?.note || '')
   const [source, setSource] = useState(initial?.source || '')
   const [photos, setPhotos] = useState<Photo[]>(initial?.photos || [])
@@ -288,14 +287,6 @@ function RecipeForm({
   const automaticContent = useRef('')
   const titleEdited = useRef(false)
   const contentEdited = useRef(false)
-  let isYouTubeInput = false
-  if (kind === 'link' && url) {
-    try {
-      isYouTubeInput = sourceLabel(normalizeUrl(url)) === 'YouTube'
-    } catch {
-      // Keep the ordinary field while the URL is incomplete.
-    }
-  }
   function resetLookup() {
     lookupGeneration.current++
     lookupFor.current = ''
@@ -305,10 +296,7 @@ function RecipeForm({
     setTitle((current) => (current === previousTitle ? '' : current))
     automaticTitle.current = ''
     const previousContent = automaticContent.current
-    if (previousContent) {
-      setIngredients((current) => (current === previousContent ? '' : current))
-      setSearchText((current) => (current === previousContent ? '' : current))
-    }
+    if (previousContent) setContent((current) => (current === previousContent ? '' : current))
     automaticContent.current = ''
   }
   const pending = busy || photoBusy || paperBusy
@@ -334,10 +322,10 @@ function RecipeForm({
         automaticTitle.current = data.title
         setTitle((current) => current || data.title)
       }
-      const content = data.ingredients?.join('\n') || ''
-      if (content) {
-        automaticContent.current = content
-        setIngredients((current) => current || content)
+      const fetched = data.ingredients?.join('\n') || ''
+      if (fetched) {
+        automaticContent.current = fetched
+        setContent((current) => current || fetched)
       }
     } catch {
       // 取得できなくてもURLは保存できる。
@@ -379,18 +367,14 @@ function RecipeForm({
       const urlChanged = kind === 'link' && !!initial && cleanUrl !== initial.url
       const needsMetadata =
         kind === 'link' &&
-        (!title.trim() ||
-          !initial?.imageUrl ||
-          urlChanged ||
-          (!ingredients.trim() && !searchText.trim() && !initial))
+        (!title.trim() || !initial?.imageUrl || urlChanged || (!content.trim() && !initial))
       const metadata = !needsMetadata
         ? { title: '', imageUrl: '', ingredients: [] }
         : lookup?.url === cleanUrl
           ? lookup.data
           : await loadPreview(cleanUrl)
-      const isYouTube = kind === 'link' && sourceLabel(cleanUrl) === 'YouTube'
       const fetchedContent = metadata.ingredients?.join('\n') || ''
-      const content = (isYouTube ? searchText : ingredients).trim() || fetchedContent
+      const savedContent = content.trim() || fetchedContent
       const savedTitle = title.trim() || metadata.title
       const titleSource =
         kind === 'link' && savedTitle
@@ -402,17 +386,13 @@ function RecipeForm({
                 ? 'auto'
                 : 'manual'
           : 'manual'
-      const existingContent = isYouTube
-        ? initial?.searchText || ''
-        : initial?.ingredients.join('、') || ''
       const contentSource =
-        kind === 'link' && content
+        kind === 'link' && savedContent
           ? contentEdited.current
             ? 'manual'
-            : initial && !urlChanged && (isYouTube ? searchText : ingredients) === existingContent
+            : initial && !urlChanged && content === recipeContent(initial)
               ? initial.contentSource || 'manual'
-              : content === automaticContent.current ||
-                  (!(isYouTube ? searchText : ingredients).trim() && !!fetchedContent)
+              : savedContent === automaticContent.current || (!content.trim() && !!fetchedContent)
                 ? 'auto'
                 : 'manual'
           : 'manual'
@@ -422,8 +402,8 @@ function RecipeForm({
         title: savedTitle,
         titleSource,
         url: cleanUrl,
-        ingredients: isYouTube ? initial?.ingredients || [] : parseIngredients(content),
-        searchText: isYouTube ? content.slice(0, RECIPE_LIMITS.searchText) : '',
+        ingredients: [],
+        searchText: savedContent.slice(0, RECIPE_LIMITS.searchText),
         contentSource,
         note: note.trim(),
         source: kind === 'link' ? sourceLabel(cleanUrl) : source.trim(),
@@ -542,12 +522,11 @@ function RecipeForm({
               <textarea
                 id="recipe-ingredients"
                 rows={2}
-                value={isYouTubeInput ? searchText : ingredients}
+                value={content}
                 onChange={(event) => {
                   contentEdited.current = true
                   automaticContent.current = ''
-                  if (isYouTubeInput) setSearchText(event.target.value)
-                  else setIngredients(event.target.value)
+                  setContent(event.target.value)
                 }}
                 placeholder="材料など、検索したい内容"
                 maxLength={RECIPE_LIMITS.searchText}
@@ -799,20 +778,10 @@ function RecipeDetail({
             編集
           </button>
         </div>
-        {!!recipe.ingredients.length && (
+        {!!recipeContent(recipe) && (
           <section className="detail-section">
             <h3>材料など</h3>
-            <div className="ingredient-tags">
-              {recipe.ingredients.map((ingredient) => (
-                <span key={ingredient}>{ingredient}</span>
-              ))}
-            </div>
-          </section>
-        )}
-        {recipe.searchText && (
-          <section className="detail-section">
-            <h3>材料など</h3>
-            <p className="preserve-lines">{recipe.searchText}</p>
+            <p className="preserve-lines">{recipeContent(recipe)}</p>
           </section>
         )}
         {recipe.note && (
@@ -1084,13 +1053,15 @@ export default function App() {
           candidates.slice(index, index + 3).map(async (recipe) => {
             try {
               const metadata = await fetchLinkMetadata(recipe.url, includeAuto)
-              const ingredients = parseIngredients(metadata.ingredients?.join('\n') || '')
-              if (!ingredients.length) {
+              const searchText = (metadata.ingredients?.join('\n') || '')
+                .trim()
+                .slice(0, RECIPE_LIMITS.searchText)
+              if (!searchText) {
                 failed++
                 return
               }
               await saveRecipe(
-                changed({ ...recipe, ingredients, contentSource: 'auto' }),
+                changed({ ...recipe, ingredients: [], searchText, contentSource: 'auto' }),
                 recipe.updatedAt,
               )
               updated++
@@ -1356,18 +1327,9 @@ export default function App() {
                               <time className="card-meta" dateTime={recipe.createdAt}>
                                 追加 {dateLabel(recipe.createdAt)}
                               </time>
-                              <div className="ingredient-tags">
-                                {recipe.ingredients.length ? (
-                                  <>
-                                    {recipe.ingredients.slice(0, 3).map((ingredient) => (
-                                      <span key={ingredient}>{ingredient}</span>
-                                    ))}
-                                    {recipe.ingredients.length > 3 && (
-                                      <span>+{recipe.ingredients.length - 3}</span>
-                                    )}
-                                  </>
-                                ) : null}
-                              </div>
+                              {!!recipeContent(recipe) && (
+                                <p className="card-content">{recipeContent(recipe)}</p>
+                              )}
                             </div>
                           </button>
                           <div className="card-actions">

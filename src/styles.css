@@ -386,7 +386,6 @@ textarea:disabled {
   color: #87918c;
 }
 
-.ingredient-tags,
 .filter-row,
 .detail-meta,
 .storage-stats {
@@ -395,7 +394,6 @@ textarea:disabled {
   gap: 8px;
 }
 
-.ingredient-tags span,
 .detail-meta span,
 .storage-stats span {
   display: inline-flex;
@@ -575,15 +573,9 @@ textarea:disabled {
   font-size: 0.7rem;
 }
 
-.recipe-grid.small .ingredient-tags {
-  gap: 5px;
+.recipe-grid.small .card-content {
   margin-top: 9px;
-}
-
-.recipe-grid.small .ingredient-tags span {
-  min-height: 24px;
-  padding-inline: 6px;
-  font-size: 0.64rem;
+  font-size: 0.7rem;
 }
 
 .recipe-grid.small .card-actions {
@@ -647,7 +639,7 @@ textarea:disabled {
   -webkit-line-clamp: 2;
 }
 
-.recipe-grid.list .ingredient-tags {
+.recipe-grid.list .card-content {
   margin-top: 9px;
 }
 
@@ -769,14 +761,16 @@ textarea:disabled {
   line-height: 1.55;
 }
 
-.ingredient-tags {
-  margin-top: 13px;
-}
-
-.ingredient-tags span {
-  min-height: 27px;
-  padding: 2px 8px;
-  font-size: 0.69rem;
+.card-content {
+  display: -webkit-box;
+  margin: 13px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .card-meta {
@@ -1653,7 +1647,7 @@ textarea:disabled {
     font-size: 0.7rem;
   }
 
-  .recipe-grid.list .ingredient-tags {
+  .recipe-grid.list .card-content {
     display: none;
   }
 
