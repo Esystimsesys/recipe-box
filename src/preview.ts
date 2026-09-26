@@ -91,7 +91,9 @@ function cleanText(value: unknown): string {
 }
 
 function safeImageUrl(value: unknown, baseUrl: string): string {
-  if (typeof value !== 'string') return ''
+  // 空文字を new URL に渡すと基準URL（レシピのページ）そのものが返り、
+  // ページを画像として読みにいってしまう。画像が無いときは無いままにする。
+  if (typeof value !== 'string' || !value.trim()) return ''
   try {
     const parsed = new URL(value, baseUrl)
     return parsed.protocol === 'https:' && !parsed.username && !parsed.password

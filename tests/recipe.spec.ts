@@ -887,16 +887,28 @@ test('危険なURLを保存せず、狭い画面と広い画面で横方向に�
   }
 })
 
-test('保存の知らせが出ている間も追加ボタンを押せる', async ({ page }) => {
+test('保存の知らせが追加ボタンを隠さず、続けて追加できる', async ({ page }) => {
   await openApp(page)
   const dialog = await openNewRecipe(page)
   await dialog.getByLabel('レシピのURL').fill('https://example.com/toast')
   await dialog.getByLabel('レシピ名').fill('保存した料理')
   await dialog.getByRole('button', { name: '保存する' }).click()
   await closeDialog(page, 'レシピ')
-  // 知らせは画面の右下に4.5秒出る。追加ボタンと同じ場所のため、重なっても操作を遮らない。
-  await expect(page.getByRole('status').filter({ hasText: '保存しました' })).toBeVisible()
-  await page.getByRole('button', { name: '追加', exact: true }).click({ timeout: 2_000 })
+  const toast = page.getByRole('status').filter({ hasText: '保存しました' })
+  const add = page.getByRole('button', { name: '追加', exact: true })
+  await expect(toast).toBeVisible()
+  // 知らせは画面の右下に4.5秒出る。広い画面でも狭い画面でも追加ボタンの上に置く。
+  for (const size of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 780 },
+  ]) {
+    await page.setViewportSize(size)
+    const toastBox = await toast.boundingBox()
+    const addBox = await add.boundingBox()
+    if (!toastBox || !addBox) throw new Error('知らせと追加ボタンの位置を取れませんでした。')
+    expect(toastBox.y + toastBox.height).toBeLessThanOrEqual(addBox.y)
+  }
+  await add.click({ timeout: 2_000 })
   await expect(page.getByRole('dialog', { name: '追加' })).toBeVisible()
 })
 

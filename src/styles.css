@@ -19,6 +19,10 @@
   --danger: #a63b32;
   --shadow: 0 12px 34px rgba(41, 54, 47, 0.09);
   --serif: 'Yu Mincho', 'Hiragino Mincho ProN', 'Hiragino Mincho Pro', serif;
+  /* 追加ボタンの位置と大きさ。知らせ（.toast）はこれを避けて上に出す。 */
+  --fab-inset: 24px;
+  --fab-height: 54px;
+  --fab-gap: 12px;
 }
 
 * {
@@ -810,10 +814,10 @@ textarea:disabled {
 
 .add-fab {
   position: fixed;
-  right: max(24px, env(safe-area-inset-right));
-  bottom: max(24px, env(safe-area-inset-bottom));
+  right: max(var(--fab-inset), env(safe-area-inset-right));
+  bottom: max(var(--fab-inset), env(safe-area-inset-bottom));
   z-index: 30;
-  min-height: 54px;
+  min-height: var(--fab-height);
   padding-inline: 21px;
   border-radius: 999px;
   box-shadow: 0 12px 30px rgba(24, 60, 48, 0.28);
@@ -1050,9 +1054,12 @@ textarea:disabled {
 .toast {
   position: fixed;
   right: 24px;
-  bottom: 24px;
+  /* 追加ボタンの上に出す。重ねると消えるまでボタンが見えない。 */
+  bottom: calc(
+    max(var(--fab-inset), env(safe-area-inset-bottom)) + var(--fab-height) + var(--fab-gap)
+  );
   z-index: 100;
-  /* 追加ボタンに重なる位置に出るため、知らせるだけのこの帯で操作を遮らない。 */
+  /* 知らせるだけの帯なので、位置が変わっても操作は遮らない。 */
   pointer-events: none;
   max-width: min(380px, calc(100vw - 32px));
   padding: 13px 18px;
@@ -1560,14 +1567,12 @@ textarea:disabled {
     columns: 1;
   }
 
-  .toast {
-    right: 16px;
-    bottom: max(18px, env(safe-area-inset-bottom));
+  :root {
+    --fab-inset: 18px;
   }
 
-  .add-fab {
-    right: max(18px, env(safe-area-inset-right));
-    bottom: max(18px, env(safe-area-inset-bottom));
+  .toast {
+    right: 16px;
   }
 }
 
