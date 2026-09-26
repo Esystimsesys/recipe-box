@@ -1,5 +1,4 @@
 import { RECIPE_LIMITS } from './domain'
-import { isGenericYouTubeDescription } from '../worker/src/extract'
 
 const LINK_METADATA_ENDPOINT = import.meta.env.VITE_LINK_METADATA_ENDPOINT || ''
 
@@ -83,7 +82,6 @@ export type LinkMetadata = {
   title: string
   imageUrl: string
   ingredients?: string[]
-  description?: string
 }
 
 function cleanText(value: unknown): string {
@@ -240,7 +238,6 @@ async function fetchViaProxy(
         title?: unknown
         imageUrl?: unknown
         ingredients?: unknown
-        description?: unknown
       }
     },
     // Workerの上流タイムアウト8秒に通信分の余裕を加える。
@@ -253,11 +250,6 @@ async function fetchViaProxy(
     ingredients: Array.isArray(data.ingredients)
       ? data.ingredients.filter((item): item is string => typeof item === 'string').slice(0, 200)
       : [],
-    description:
-      typeof data.description === 'string' &&
-      !(sourceIsYouTube(sourceUrl) && isGenericYouTubeDescription(data.description))
-        ? data.description.slice(0, RECIPE_LIMITS.searchText)
-        : '',
   }
 }
 
@@ -286,7 +278,6 @@ async function fetchOpenGraph(url: string, refresh = false): Promise<LinkMetadat
       meta('meta[property="og:image"]') || meta('meta[name="twitter:image"]'),
       url,
     ),
-    description: '',
   }
 }
 
@@ -303,21 +294,7 @@ export async function fetchLinkMetadata(url: string, refresh = false): Promise<L
   const endpoint = oEmbedUrl(url)
   if (endpoint) {
     try {
-      const embedded = await fetchOEmbed(endpoint, url, refresh)
-      if (sourceIsYouTube(url)) {
-        try {
-          const page = await fetchOpenGraph(url, refresh)
-          return {
-            ...embedded,
-            description: page.description || '',
-            imageUrl: embedded.imageUrl || page.imageUrl,
-            title: embedded.title || page.title,
-          }
-        } catch {
-          return embedded
-        }
-      }
-      return embedded
+      return await fetchOEmbed(endpoint, url, refresh)
     } catch {
       // Some providers or individual posts do not expose oEmbed. Try the page itself next.
     }
@@ -327,14 +304,5 @@ export async function fetchLinkMetadata(url: string, refresh = false): Promise<L
     return { ...metadata, imageUrl: metadata.imageUrl || directImage }
   } catch {
     return { title: '', imageUrl: directImage }
-  }
-}
-
-function sourceIsYouTube(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase()
-    return host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com')
-  } catch {
-    return false
   }
 }

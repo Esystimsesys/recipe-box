@@ -11,9 +11,9 @@
 - インストール後のオフライン利用
 - Androidの共有メニューからURLを受け取り、確認して登録
 
-料理サイトは構造化データにある材料、YouTubeは公開ページの概要欄を「材料など」に自動入力し、検索に使います。料理サイトの作り方は取り込まず、元サイトで確認します。X・Instagram・TikTokなどのSNS本文は取り込みません。YouTubeやTikTokのoEmbed、クラシル公式レシピ（`/recipes/`）の公開サムネイル、Instagramの公開埋め込みを使ってプレビューを表示します。Xの公開投稿は[FxEmbedの公開API](https://github.com/FxEmbed/FxEmbed/blob/main/docs/src/content/docs/api/introduction.mdx)に投稿IDを送って画像URLを取得します。TikTokの画像URLが期限切れになった場合は再取得します。非公開・削除済みの投稿など、画像やタイトルを取得できない場合もURLは保存できます。レシピ、料理写真、メモはブラウザのIndexedDBに保存され、アプリ独自のサーバーへの送信や自動同期は行いません。
+料理サイトは構造化データにある材料を「材料など」に自動入力し、検索に使います。料理サイトの作り方は取り込まず、元サイトで確認します。YouTubeの概要欄は作り方を含むことが多いため取り込みません（「材料など」に手で書けます）。X・Instagram・TikTokなどのSNS本文は取り込みません。YouTubeやTikTokのoEmbed、クラシル公式レシピ（`/recipes/`）の公開サムネイル、Instagramの公開埋め込みを使ってプレビューを表示します。Xの公開投稿は[FxEmbedの公開API](https://github.com/FxEmbed/FxEmbed/blob/main/docs/src/content/docs/api/introduction.mdx)に投稿IDを送って画像URLを取得します。TikTokの画像URLが期限切れになった場合は再取得します。非公開・削除済みの投稿など、画像やタイトルを取得できない場合もURLは保存できます。レシピ、料理写真、メモはブラウザのIndexedDBに保存され、アプリ独自のサーバーへの送信や自動同期は行いません。
 
-YouTubeの概要欄を取得できない場合は空欄にします。以前の取得でYouTube共通の案内文が保存された場合は、設定の「材料などを一括取得」で修正できます。概要欄を再取得できない場合も、誤った案内文は削除して再試行できる状態にします。
+以前のバージョンで取得したYouTubeの概要欄は、そのまま端末に残ります。不要なものはレシピを編集して消せます。
 
 公開先：[GitHub Pages](https://esystimsesys.github.io/recipe-box/)
 リポジトリ：[Esystimsesys/recipe-box](https://github.com/Esystimsesys/recipe-box)
@@ -34,7 +34,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-`VITE_LINK_METADATA_ENDPOINT` はリンクのタイトル・材料・概要欄を取得するエンドポイントです。未設定でもURLは保存できます。
+`VITE_LINK_METADATA_ENDPOINT` はリンクのタイトル・材料を取得するエンドポイントです。未設定でもURLは保存できます。
 
 開発時だけX・Instagram・TikTok・Cookpadのサンプルを各2件、既存データを上書きせず一度だけ追加します。削除したサンプルは自動復活しません。本番ビルドと公開版には含まれません。
 
@@ -62,7 +62,7 @@ BASE_PATH=/recipe-box/ npm run build
 
 ## リンクのタイトル取得（Cloudflare Worker）
 
-レシピサイトの多くはCORSヘッダーを返さないため、ブラウザからはページを読めません。[worker/](worker/) のWorkerがタイトル・画像に加え、構造化データの材料またはYouTubeの概要欄だけを返します。料理サイトの作り方や動画は保存しません。
+レシピサイトの多くはCORSヘッダーを返さないため、ブラウザからはページを読めません。[worker/](worker/) のWorkerがタイトル・画像に加え、構造化データの材料だけを返します。料理サイトの作り方や動画、YouTubeの概要欄は取得しません。
 
 - 参照元は `worker/wrangler.jsonc` の `ALLOWED_ORIGINS` と、tailnet（`*.ts.net`）のオリジンだけ許可します。Originは詐称できるため、これは認証ではなく無料枠を守るための目印です。
 - 取得先は公開DNS名のみで、IPアドレス・`.local`・`.internal`・`.ts.net` 宛ては拒否します。

@@ -6,7 +6,7 @@ export const METADATA_ENDPOINT = process.env.VITE_LINK_METADATA_ENDPOINT || ''
 /** 取得用エンドポイントが設定されたビルドでも、テストが外部へ出ないようにする。 */
 export async function routeLinkMetadata(
   page: Page,
-  metadata: { title: string; imageUrl: string; ingredients?: string[]; description?: string } = {
+  metadata: { title: string; imageUrl: string; ingredients?: string[] } = {
     title: '',
     imageUrl: '',
   },

@@ -172,10 +172,14 @@ export function sourceLabel(url: string): string {
   return hostname
 }
 
-export function sourceContentKind(url: string): 'ingredients' | 'description' | 'none' {
+/**
+ * 自動で取り込む「材料など」の種類。
+ * YouTubeの概要欄は作り方を含むことが多いため取り込まない（手入力はできる）。
+ */
+export function sourceContentKind(url: string): 'ingredients' | 'none' {
   const hostname = new URL(normalizeUrl(url)).hostname.toLowerCase().replace(/^www\./u, '')
   if (hostname === 'youtu.be' || hostname === 'youtube.com' || hostname.endsWith('.youtube.com'))
-    return 'description'
+    return 'none'
   const socialHosts = [
     'x.com',
     'twitter.com',
