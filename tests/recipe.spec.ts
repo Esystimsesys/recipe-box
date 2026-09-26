@@ -887,6 +887,19 @@ test('危険なURLを保存せず、狭い画面と広い画面で横方向に�
   }
 })
 
+test('保存の知らせが出ている間も追加ボタンを押せる', async ({ page }) => {
+  await openApp(page)
+  const dialog = await openNewRecipe(page)
+  await dialog.getByLabel('レシピのURL').fill('https://example.com/toast')
+  await dialog.getByLabel('レシピ名').fill('保存した料理')
+  await dialog.getByRole('button', { name: '保存する' }).click()
+  await closeDialog(page, 'レシピ')
+  // 知らせは画面の右下に4.5秒出る。追加ボタンと同じ場所のため、重なっても操作を遮らない。
+  await expect(page.getByRole('status').filter({ hasText: '保存しました' })).toBeVisible()
+  await page.getByRole('button', { name: '追加', exact: true }).click({ timeout: 2_000 })
+  await expect(page.getByRole('dialog', { name: '追加' })).toBeVisible()
+})
+
 test('URLを変更したら古い自動タイトルを消し、手入力の名前は残す', async ({ page }) => {
   await page.route('https://www.youtube.com/oembed**', (route) =>
     route.fulfill({ json: { title: 'あ'.repeat(400) } }),

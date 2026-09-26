@@ -1052,6 +1052,8 @@ textarea:disabled {
   right: 24px;
   bottom: 24px;
   z-index: 100;
+  /* 追加ボタンに重なる位置に出るため、知らせるだけのこの帯で操作を遮らない。 */
+  pointer-events: none;
   max-width: min(380px, calc(100vw - 32px));
   padding: 13px 18px;
   border-radius: 12px;
