@@ -155,6 +155,35 @@ describe('direct previews', () => {
   })
 })
 
+describe('画像URLの扱い', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('画像が無いときにレシピのURLを画像として扱わない', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ title: '季節のスープ', imageUrl: '', ingredients: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    const metadata = await fetchLinkMetadata('https://example.com/seasonal-soup')
+    expect(metadata.title).toBe('季節のスープ')
+    expect(metadata.imageUrl).toBe('')
+  })
+
+  it('相対パスの画像はレシピのURLを基準に解決する', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ title: '', imageUrl: '/img/soup.jpg', ingredients: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    const metadata = await fetchLinkMetadata('https://example.com/seasonal-soup')
+    expect(metadata.imageUrl).toBe('https://example.com/img/soup.jpg')
+  })
+})
+
 describe('metadataProxyUrl', () => {
   const endpoint = 'https://link-metadata.example.workers.dev/'
 
