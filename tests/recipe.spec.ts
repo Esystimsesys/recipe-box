@@ -45,6 +45,8 @@ async function addLinkRecipe(page: Page, title = '鶏と玉ねぎ') {
 
   const detail = page.getByRole('dialog', { name: 'レシピ' })
   await expect(detail.getByRole('heading', { name: title })).toBeVisible()
+  // 材料などは区切ったり表記を直したりせず、入力した文章のまま見せる。
+  await expect(detail.getByText('鶏肉、たまねぎ', { exact: true })).toBeVisible()
   await expect(detail.getByRole('link', { name: '元のレシピを見る' })).toHaveAttribute(
     'href',
     'https://example.com/recipe?id=7&from=share#steps',

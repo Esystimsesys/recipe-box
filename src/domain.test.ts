@@ -2,12 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   exportBackup,
   matchesRecipe,
-  normalizeIngredient,
   normalizeStoredRecipe,
   duplicateKey,
   normalizeUrl,
   parseBackup,
-  parseIngredients,
+  recipeContent,
   sourceLabel,
   sourceContentKind,
   type Recipe,
@@ -126,13 +125,13 @@ describe('ingredient search', () => {
     expect(matchesRecipe(recipe, '節約料理')).toBe(true)
     expect(parseBackup(exportBackup([recipe]))[0].searchText).toBe(recipe.searchText)
   })
-  it('表記ゆれを正規化し、順序を保って重複を除く', () => {
-    expect(normalizeIngredient(' タマネギ ')).toBe('玉ねぎ')
-    expect(parseIngredients('タマネギ、鶏肉，玉ねぎ\nジャガイモ')).toEqual([
-      '玉ねぎ',
-      '鶏肉',
-      'じゃがいも',
-    ])
+  it('材料などは文章のまま扱い、旧データの材料も読点でつなげて見せる', () => {
+    const text = '鶏むね肉 300g、タマネギ 1個\n下味は前日に'
+    const recipe = sampleRecipe({ ingredients: [], searchText: text })
+    expect(recipeContent(recipe)).toBe(text)
+    expect(recipeContent(sampleRecipe({ ingredients: ['鶏肉', '玉ねぎ'] }))).toBe('鶏肉、玉ねぎ')
+    expect(matchesRecipe(recipe, '玉ねぎ 下味')).toBe(true)
+    expect(matchesRecipe(recipe, '', ['玉葱'])).toBe(true)
   })
 
   it('本文検索と正規化した材料の部分一致AND検索を組み合わせる', () => {

@@ -201,21 +201,19 @@ export function normalizeIngredient(input: string): string {
   return INGREDIENT_ALIASES.get(normalized) ?? normalized
 }
 
-export function parseIngredients(input: string): string[] {
-  const seen = new Set<string>()
-  for (const part of input.split(/[,，、\r\n]+/u)) {
-    const ingredient = normalizeIngredient(part)
-    if (ingredient) seen.add(ingredient)
-  }
-  return [...seen]
+/**
+ * 「材料など」の本文。入力した文章をそのまま searchText に保存する。
+ * 以前の版は区切って ingredients に保存していたため、残っている場合は読点でつなげて見せる。
+ */
+export function recipeContent(recipe: Recipe): string {
+  return [recipe.ingredients.join('、'), recipe.searchText || ''].filter(Boolean).join('\n')
 }
 
 function normalizeSearchText(value: string): string {
-  return value
-    .normalize('NFKC')
-    .trim()
-    .toLocaleLowerCase('ja-JP')
-    .replace(/[ァ-ヶ]/gu, (kana) => String.fromCharCode(kana.charCodeAt(0) - 0x60))
+  let text = value.normalize('NFKC').trim().toLocaleLowerCase('ja-JP')
+  // 文章の中の表記ゆれも同じ語として探せるようにする。
+  for (const [alias, name] of INGREDIENT_ALIASES) text = text.replaceAll(alias, name)
+  return text.replace(/[ァ-ヶ]/gu, (kana) => String.fromCharCode(kana.charCodeAt(0) - 0x60))
 }
 
 export function matchesRecipe(recipe: Recipe, query: string, ingredients: string[] = []): boolean {
@@ -230,24 +228,13 @@ export function matchesRecipe(recipe: Recipe, query: string, ingredients: string
     recipe.searchText || '',
     ...recipe.ingredients,
   ].map(normalizeSearchText)
-  const recipeIngredients = recipe.ingredients.map((value) =>
-    normalizeSearchText(normalizeIngredient(value)),
-  )
-  const textMatches = terms.every(
-    (term) =>
-      searchableValues.some((value) => value.includes(term)) ||
-      recipeIngredients.some((ingredient) =>
-        ingredient.includes(normalizeSearchText(normalizeIngredient(term))),
-      ),
-  )
+  if (!terms.every((term) => searchableValues.some((value) => value.includes(term)))) return false
 
-  if (!textMatches) return false
+  const content = normalizeSearchText(recipeContent(recipe))
   return ingredients
-    .map((ingredient) => normalizeSearchText(normalizeIngredient(ingredient)))
+    .map(normalizeSearchText)
     .filter(Boolean)
-    .every((ingredient) =>
-      recipeIngredients.some((recipeIngredient) => recipeIngredient.includes(ingredient)),
-    )
+    .every((ingredient) => content.includes(ingredient))
 }
 
 type DecodedImage = {
