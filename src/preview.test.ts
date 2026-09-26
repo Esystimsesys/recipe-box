@@ -160,27 +160,26 @@ describe('画像URLの扱い', () => {
     vi.restoreAllMocks()
   })
 
-  it('画像が無いときにレシピのURLを画像として扱わない', async () => {
+  // 取得用エンドポイントの設定に左右されないよう、oEmbedの経路で確かめる。
+  const mockOEmbed = (thumbnail: string) =>
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ title: '季節のスープ', imageUrl: '', ingredients: [] }), {
+      new Response(JSON.stringify({ title: '動画のレシピ', thumbnail_url: thumbnail }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
     )
-    const metadata = await fetchLinkMetadata('https://example.com/seasonal-soup')
-    expect(metadata.title).toBe('季節のスープ')
+
+  it('画像が無いときにレシピのURLを画像として扱わない', async () => {
+    mockOEmbed('')
+    const metadata = await fetchLinkMetadata('https://youtu.be/abcdefghijk')
+    expect(metadata.title).toBe('動画のレシピ')
     expect(metadata.imageUrl).toBe('')
   })
 
   it('相対パスの画像はレシピのURLを基準に解決する', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ title: '', imageUrl: '/img/soup.jpg', ingredients: [] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    )
-    const metadata = await fetchLinkMetadata('https://example.com/seasonal-soup')
-    expect(metadata.imageUrl).toBe('https://example.com/img/soup.jpg')
+    mockOEmbed('/vi/abcdefghijk/hqdefault.jpg')
+    const metadata = await fetchLinkMetadata('https://www.youtube.com/watch?v=abcdefghijk')
+    expect(metadata.imageUrl).toBe('https://www.youtube.com/vi/abcdefghijk/hqdefault.jpg')
   })
 })
 
