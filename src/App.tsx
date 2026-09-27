@@ -531,9 +531,6 @@ function RecipeForm({
                 placeholder="材料など、検索したい内容"
                 maxLength={RECIPE_LIMITS.searchText}
               />
-              <small>
-                料理サイトの材料は自動入力します。YouTubeは概要欄に作り方が含まれることが多いため取り込まないので、必要な材料だけ書いてください。作り方は元のページで確認できます。
-              </small>
             </div>
             {kind === 'paper' && (
               <div className="field">
@@ -1645,7 +1642,7 @@ export default function App() {
                     <div className="settings-action">
                       <h3>材料などをまとめて取得</h3>
                       <p>
-                        料理サイトの材料を、空欄の記録に追加します。YouTubeの概要欄は取り込みません。手入力した内容は変更しません。対象は
+                        料理サイトの材料を、空欄の記録に追加します。手入力した内容は変更しません。対象は
                         {missingContentCount}件です。
                       </p>
                       <button
