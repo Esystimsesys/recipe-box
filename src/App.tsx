@@ -118,22 +118,21 @@ function Dialog({
   onClose,
   busy = false,
   className = '',
-  focusTitle = false,
 }: {
   title: string
   children: ReactNode
   onClose: () => void
   busy?: boolean
   className?: string
-  focusTitle?: boolean
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     ref.current?.showModal()
-    if (focusTitle) titleRef.current?.focus({ preventScroll: true })
+    // 開いた直後に閉じるボタンが強調されないよう、見出しにフォーカスを置く。
+    titleRef.current?.focus({ preventScroll: true })
     return () => ref.current?.close()
-  }, [focusTitle])
+  }, [])
   return (
     <dialog
       ref={ref}
@@ -145,7 +144,7 @@ function Dialog({
       }}
     >
       <header className="dialog-header">
-        <h2 ref={titleRef} tabIndex={focusTitle ? -1 : undefined}>
+        <h2 ref={titleRef} tabIndex={-1}>
           {title}
         </h2>
         <button
@@ -704,7 +703,7 @@ function RecipeDetail({
     }
   }
   return (
-    <Dialog title="レシピ" onClose={onClose} busy={busy} focusTitle>
+    <Dialog title="レシピ" onClose={onClose} busy={busy}>
       <div className="dialog-body">
         {recipe.photos[0] && (
           <button
