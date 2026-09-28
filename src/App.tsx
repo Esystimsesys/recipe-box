@@ -50,6 +50,7 @@ import {
 } from './preview'
 import { friendlyError, listRecipes, removeRecipe, restoreRecipes, saveRecipe } from './store'
 import { takeSharedLink, type SharedLink } from './shared-link'
+import { useHistoryBack } from './history-back'
 import { version } from '../package.json'
 
 type Page = 'recipes' | 'settings'
@@ -118,29 +119,89 @@ function Dialog({
   onClose,
   busy = false,
   className = '',
+  swipeToClose = false,
 }: {
   title: string
   children: ReactNode
   onClose: () => void
   busy?: boolean
   className?: string
+  /** 右へのスワイプとブラウザの「戻る」で閉じる。 */
+  swipeToClose?: boolean
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
+  const swipe = useRef<{ x: number; y: number; time: number; dx: number; horizontal?: boolean }>(
+    null,
+  )
   useEffect(() => {
     ref.current?.showModal()
     // 開いた直後に閉じるボタンが強調されないよう、見出しにフォーカスを置く。
     titleRef.current?.focus({ preventScroll: true })
     return () => ref.current?.close()
   }, [])
+  useHistoryBack(swipeToClose, () => {
+    if (busy) return false
+    onClose()
+    return true
+  })
+  function slide(dx: number, animate: boolean) {
+    const dialog = ref.current
+    if (!dialog) return
+    dialog.style.transition = animate ? 'transform 0.2s ease-out' : 'none'
+    dialog.style.transform = dx ? `translateX(${dx}px)` : ''
+  }
   return (
     <dialog
       ref={ref}
-      className={`app-dialog ${className}`}
+      className={`app-dialog ${swipeToClose ? 'swipe-to-close' : ''} ${className}`}
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault()
         if (!busy) onClose()
+      }}
+      onTouchStart={(event) => {
+        swipe.current = null
+        if (!swipeToClose || busy || event.touches.length !== 1) return
+        const touch = event.touches[0]
+        // 画面の左端はブラウザや端末の「戻る」操作に任せる。iPhoneのホーム画面版には無いので受け持つ。
+        if (touch.clientX < 24 && !(sharePlatform() === 'ios' && isStandalone())) return
+        swipe.current = { x: touch.clientX, y: touch.clientY, time: event.timeStamp, dx: 0 }
+      }}
+      onTouchMove={(event) => {
+        const state = swipe.current
+        if (!state) return
+        const touch = event.touches[0]
+        const dx = touch.clientX - state.x
+        const dy = touch.clientY - state.y
+        if (state.horizontal === undefined) {
+          if (Math.hypot(dx, dy) < 10) return
+          // 縦のスクロールと取り合わないよう、はっきり右へ動かしたときだけ追う。
+          state.horizontal = dx > Math.abs(dy) * 1.5
+          if (!state.horizontal) {
+            swipe.current = null
+            return
+          }
+        }
+        state.dx = Math.max(0, dx)
+        slide(state.dx, false)
+      }}
+      onTouchEnd={(event) => {
+        const state = swipe.current
+        swipe.current = null
+        if (!state?.horizontal) return
+        const width = ref.current?.offsetWidth ?? window.innerWidth
+        const speed = state.dx / Math.max(1, event.timeStamp - state.time)
+        if (state.dx > width * 0.35 || (state.dx > 40 && speed > 0.5)) {
+          slide(width, true)
+          window.setTimeout(onClose, 200)
+        } else {
+          slide(0, true)
+        }
+      }}
+      onTouchCancel={() => {
+        if (swipe.current?.horizontal) slide(0, true)
+        swipe.current = null
       }}
     >
       <header className="dialog-header">
@@ -703,7 +764,7 @@ function RecipeDetail({
     }
   }
   return (
-    <Dialog title="レシピ" onClose={onClose} busy={busy}>
+    <Dialog title="レシピ" onClose={onClose} busy={busy} swipeToClose>
       <div className="dialog-body">
         {recipe.photos[0] && (
           <button
@@ -1770,6 +1831,7 @@ export default function App() {
           title={lightbox.name || '写真を拡大'}
           onClose={() => setLightbox(undefined)}
           className="lightbox"
+          swipeToClose
         >
           <div className="lightbox-content">
             <img src={lightbox.dataUrl} alt={lightbox.name || '拡大した写真'} />
