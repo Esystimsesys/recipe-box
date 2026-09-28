@@ -10,6 +10,8 @@ export default defineConfig({
   fullyParallel: true,
   workers: 2,
   timeout: 30_000,
+  // CIでもテストごとの所要時間を残し、遅くなったテストを見分けられるようにする。
+  reporter: 'list',
   expect: { timeout: 8_000 },
   use: {
     baseURL: 'http://localhost:5190',

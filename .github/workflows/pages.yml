@@ -35,6 +35,13 @@ jobs:
       - run: npm run test:e2e
         env:
           VITE_LINK_METADATA_ENDPOINT: ${{ env.LINK_METADATA_ENDPOINT }}
+      # 失敗したテストのトレースと画面を残し、CIでしか起きない失敗を調べられるようにする。
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 14
       - name: Build for repository path
         run: npm run build
         env:
