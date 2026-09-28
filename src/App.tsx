@@ -60,6 +60,7 @@ type RefreshProgress = {
   done: number
   total: number
   updated: number
+  unchanged: number
   failed: number
   finished: boolean
 }
@@ -70,6 +71,25 @@ function needsSourceContent(recipe: Recipe): boolean {
 function canRefreshSourceContent(recipe: Recipe): boolean {
   if (recipe.kind !== 'link' || !recipe.url) return false
   return sourceContentKind(recipe.url) === 'ingredients' && recipe.contentSource === 'auto'
+}
+/** 名前が空欄か、自動で入った名前のURLレシピ。手入力と取得元が分からない名前は対象にしない。 */
+function canFetchTitle(recipe: Recipe): boolean {
+  return (
+    recipe.kind === 'link' &&
+    !!recipe.url &&
+    (!recipe.title.trim() || recipe.titleSource === 'auto')
+  )
+}
+function canFetchContent(recipe: Recipe): boolean {
+  return needsSourceContent(recipe) || canRefreshSourceContent(recipe)
+}
+function refreshSummary({ updated, unchanged, failed }: RefreshProgress): string {
+  const parts = [
+    updated && `${updated}件を更新`,
+    unchanged && `${unchanged}件は変更なし`,
+    failed && `${failed}件は取得できませんでした`,
+  ].filter(Boolean)
+  return `完了：${parts.join('、') || '対象がありませんでした'}。`
 }
 const ORDER_LABELS: Record<RecipeOrder, string> = {
   added: '最近追加した順',
@@ -1036,115 +1056,92 @@ export default function App() {
     await saveRecipe(changed({ ...recipe, [field]: !recipe[field] }), recipe.updatedAt)
     await afterWrite('変更しました')
   }
-  async function refreshMissingTitles(includeAuto = false) {
+  async function refreshTitles() {
     setBusy(true)
     setSettingsError('')
     setTitleRefresh(undefined)
     try {
       // Read the latest records before starting; never replace a title entered in another tab.
-      const candidates = (await listRecipes()).filter(
-        (recipe) =>
-          recipe.kind === 'link' &&
-          recipe.url &&
-          (includeAuto ? recipe.titleSource === 'auto' : !recipe.title.trim()),
-      )
-      let updated = 0
-      let failed = 0
-      setTitleRefresh({ done: 0, total: candidates.length, updated, failed, finished: false })
+      const candidates = (await listRecipes()).filter(canFetchTitle)
+      const progress = { done: 0, total: candidates.length, updated: 0, unchanged: 0, failed: 0 }
+      setTitleRefresh({ ...progress, finished: false })
       for (let index = 0; index < candidates.length; index += 3) {
         await Promise.all(
           candidates.slice(index, index + 3).map(async (recipe) => {
             try {
-              const metadata = await fetchLinkMetadata(recipe.url, includeAuto)
+              const metadata = await fetchLinkMetadata(recipe.url, true)
               if (!metadata.title) {
-                failed++
+                progress.failed++
+                return
+              }
+              if (metadata.title === recipe.title) {
+                progress.unchanged++
                 return
               }
               await saveRecipe(
                 changed({ ...recipe, title: metadata.title, titleSource: 'auto' }),
                 recipe.updatedAt,
               )
-              updated++
+              progress.updated++
             } catch {
               // A failed lookup or concurrent edit leaves the existing record untouched.
-              failed++
+              progress.failed++
             }
           }),
         )
-        setTitleRefresh({
-          done: Math.min(index + 3, candidates.length),
-          total: candidates.length,
-          updated,
-          failed,
-          finished: false,
-        })
+        progress.done = Math.min(index + 3, candidates.length)
+        setTitleRefresh({ ...progress, finished: false })
       }
-      if (updated) await afterWrite(`${updated}件のレシピ名を更新しました`)
+      if (progress.updated) await afterWrite(`${progress.updated}件のレシピ名を更新しました`)
       else await refresh()
-      setTitleRefresh({
-        done: candidates.length,
-        total: candidates.length,
-        updated,
-        failed,
-        finished: true,
-      })
+      setTitleRefresh({ ...progress, finished: true })
     } catch (error) {
       setSettingsError(friendlyError(error))
     } finally {
       setBusy(false)
     }
   }
-  async function refreshMissingContent(includeAuto = false) {
+  async function refreshContent() {
     setBusy(true)
     setSettingsError('')
     setContentRefresh(undefined)
     try {
-      const candidates = (await listRecipes()).filter(
-        includeAuto ? canRefreshSourceContent : needsSourceContent,
-      )
-      let updated = 0
-      let failed = 0
-      setContentRefresh({ done: 0, total: candidates.length, updated, failed, finished: false })
+      const candidates = (await listRecipes()).filter(canFetchContent)
+      const progress = { done: 0, total: candidates.length, updated: 0, unchanged: 0, failed: 0 }
+      setContentRefresh({ ...progress, finished: false })
       for (let index = 0; index < candidates.length; index += 3) {
         await Promise.all(
           candidates.slice(index, index + 3).map(async (recipe) => {
             try {
-              const metadata = await fetchLinkMetadata(recipe.url, includeAuto)
+              const metadata = await fetchLinkMetadata(recipe.url, true)
               const searchText = (metadata.ingredients?.join('\n') || '')
                 .trim()
                 .slice(0, RECIPE_LIMITS.searchText)
               if (!searchText) {
-                failed++
+                progress.failed++
+                return
+              }
+              if (searchText === recipeContent(recipe)) {
+                progress.unchanged++
                 return
               }
               await saveRecipe(
                 changed({ ...recipe, ingredients: [], searchText, contentSource: 'auto' }),
                 recipe.updatedAt,
               )
-              updated++
+              progress.updated++
             } catch {
               // A failed lookup or concurrent edit leaves the existing record untouched.
-              failed++
+              progress.failed++
             }
           }),
         )
-        setContentRefresh({
-          done: Math.min(index + 3, candidates.length),
-          total: candidates.length,
-          updated,
-          failed,
-          finished: false,
-        })
+        progress.done = Math.min(index + 3, candidates.length)
+        setContentRefresh({ ...progress, finished: false })
       }
-      if (updated) await afterWrite(`${updated}件の材料などを更新しました`)
+      if (progress.updated) await afterWrite(`${progress.updated}件の材料などを更新しました`)
       else await refresh()
-      setContentRefresh({
-        done: candidates.length,
-        total: candidates.length,
-        updated,
-        failed,
-        finished: true,
-      })
+      setContentRefresh({ ...progress, finished: true })
     } catch (error) {
       setSettingsError(friendlyError(error))
     } finally {
@@ -1176,14 +1173,8 @@ export default function App() {
       return b.createdAt.localeCompare(a.createdAt)
     })
   const allRecipesSelected = !filters.cooked && !filters.favorites
-  const missingTitleCount = recipes.filter(
-    (recipe) => recipe.kind === 'link' && recipe.url && !recipe.title.trim(),
-  ).length
-  const missingContentCount = recipes.filter(needsSourceContent).length
-  const refreshTitleCount = recipes.filter(
-    (recipe) => recipe.kind === 'link' && !!recipe.url && recipe.titleSource === 'auto',
-  ).length
-  const refreshContentCount = recipes.filter(canRefreshSourceContent).length
+  const titleFetchCount = recipes.filter(canFetchTitle).length
+  const contentFetchCount = recipes.filter(canFetchContent).length
   const filteredTitle = allRecipesSelected
     ? '集めたレシピ'
     : filters.cooked && filters.favorites
@@ -1670,70 +1661,47 @@ export default function App() {
                     <div className="settings-action">
                       <h3>レシピ名をまとめて取得</h3>
                       <p>
-                        名前が空欄のURLレシピを取得します。入力済みの名前は変更しません。対象は
-                        {missingTitleCount}件です。
+                        URLで登録したレシピの名前を、元のページから取り直します。空欄の名前と、自動で入った名前が対象です。手入力した名前は変更しません。対象は
+                        {titleFetchCount}件です。
                       </p>
                       <button
                         className="secondary"
-                        disabled={busy || missingTitleCount === 0}
-                        onClick={() => void refreshMissingTitles()}
+                        disabled={busy || titleFetchCount === 0}
+                        onClick={() => void refreshTitles()}
                       >
                         <RefreshCw size={18} />
                         {titleRefresh && !titleRefresh.finished
                           ? `取得中 ${titleRefresh.done}/${titleRefresh.total}件`
-                          : 'レシピ名を一括取得'}
+                          : 'レシピ名を取得'}
                       </button>
-                      <button
-                        className="secondary"
-                        disabled={busy || refreshTitleCount === 0}
-                        onClick={() => void refreshMissingTitles(true)}
-                      >
-                        <RefreshCw size={18} />
-                        レシピ名を再取得（{refreshTitleCount}件）
-                      </button>
-                      {titleRefresh && (
+                      {titleRefresh?.finished && (
                         <p className="fineprint" role="status">
-                          {titleRefresh.finished
-                            ? `完了：${titleRefresh.updated}件を更新、${titleRefresh.failed}件は更新できませんでした。`
-                            : `${titleRefresh.done}/${titleRefresh.total}件を確認中…`}
+                          {refreshSummary(titleRefresh)}
                         </p>
                       )}
                     </div>
                     <div className="settings-action">
                       <h3>材料などをまとめて取得</h3>
                       <p>
-                        料理サイトの材料を、空欄の記録に追加します。手入力した内容は変更しません。対象は
-                        {missingContentCount}件です。
+                        料理サイトの材料を、元のページから取り直します。空欄のものと、自動で入った材料が対象です。手入力した内容は変更しません。対象は
+                        {contentFetchCount}件です。
                       </p>
                       <button
                         className="secondary"
-                        disabled={busy || missingContentCount === 0}
-                        onClick={() => void refreshMissingContent()}
+                        disabled={busy || contentFetchCount === 0}
+                        onClick={() => void refreshContent()}
                       >
                         <RefreshCw size={18} />
                         {contentRefresh && !contentRefresh.finished
                           ? `取得中 ${contentRefresh.done}/${contentRefresh.total}件`
-                          : '材料などを一括取得'}
+                          : '材料などを取得'}
                       </button>
-                      <button
-                        className="secondary"
-                        disabled={busy || refreshContentCount === 0}
-                        onClick={() => void refreshMissingContent(true)}
-                      >
-                        <RefreshCw size={18} />
-                        材料などを再取得（{refreshContentCount}件）
-                      </button>
-                      {contentRefresh && (
+                      {contentRefresh?.finished && (
                         <p className="fineprint" role="status">
-                          {contentRefresh.finished
-                            ? `完了：${contentRefresh.updated}件を更新、${contentRefresh.failed}件は更新できませんでした。`
-                            : `${contentRefresh.done}/${contentRefresh.total}件を確認中…`}
+                          {refreshSummary(contentRefresh)}
                         </p>
                       )}
                     </div>
-                    <p className="fineprint">
-                      再取得は自動取得した材料が対象です。手入力した内容と、取得元を判別できないほかの入力済みデータは保護します。
-                    </p>
                   </section>
                 </>
               )}

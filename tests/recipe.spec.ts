@@ -1046,7 +1046,7 @@ test('長い共有URLは切断せず保存し、上限超過はエラーとし�
 test.describe('タイトル取得の回復', () => {
   test.use({ serviceWorkers: 'block' })
 
-  test('材料などの一括取得はYouTubeを対象にせず、手入力と旧データを残す', async ({ page }) => {
+  test('材料などの取得はYouTubeを対象にせず、手入力と旧データを残す', async ({ page }) => {
     test.skip(!METADATA_ENDPOINT, '取得用エンドポイントが必要')
     await page.route('https://www.youtube.com/oembed?**', (route) =>
       route.fulfill({ json: { title: '動画のレシピ', thumbnail_url: '' } }),
@@ -1112,17 +1112,14 @@ test.describe('タイトル取得の回復', () => {
     const contentAction = page.locator('.settings-action').filter({
       has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
     })
-    // 対象は材料が空の料理サイトだけ。YouTubeの2件と手入力は数えない。
-    await expect(contentAction.getByText('対象は1件です。')).toBeVisible()
-    await contentAction.getByRole('button', { name: '材料などを再取得（1件）' }).click()
-    await expect(contentAction.getByRole('status')).toContainText(
-      '完了：1件を更新、0件は更新できませんでした。',
-    )
-    await contentAction.getByRole('button', { name: '材料などを一括取得' }).click()
-    await expect(contentAction.getByRole('status')).toContainText(
-      '完了：1件を更新、0件は更新できませんでした。',
-    )
-    await expect(contentAction.getByText('対象は0件です。')).toBeVisible()
+    // 対象は材料が空か自動取得した料理サイトだけ。YouTubeの2件と手入力は数えない。
+    await expect(contentAction.getByText('対象は2件です。')).toBeVisible()
+    await contentAction.getByRole('button', { name: '材料などを取得' }).click()
+    await expect(contentAction.getByRole('status')).toHaveText('完了：2件を更新。')
+    // 取得し直しても同じ内容なら、更新せずに変更なしと伝える。
+    await expect(contentAction.getByText('対象は2件です。')).toBeVisible()
+    await contentAction.getByRole('button', { name: '材料などを取得' }).click()
+    await expect(contentAction.getByRole('status')).toHaveText('完了：2件は変更なし。')
     expect(youtubeLookups).toBe(0)
     await page.getByRole('button', { name: '一覧に戻る' }).click()
     for (const [keyword, count] of [
@@ -1185,17 +1182,17 @@ test.describe('タイトル取得の回復', () => {
     const backupBox = await page.getByRole('heading', { name: '記録とバックアップ' }).boundingBox()
     const fetchBox = await fetchArea.boundingBox()
     expect(fetchBox!.y).toBeGreaterThan(backupBox!.y + backupBox!.height)
-    await expect(fetchArea.getByRole('button', { name: 'レシピ名を再取得（1件）' })).toBeEnabled()
-    await fetchArea.getByRole('button', { name: 'レシピ名を再取得（1件）' }).click()
+    await expect(fetchArea.getByRole('button', { name: 'レシピ名を取得' })).toBeEnabled()
+    await fetchArea.getByRole('button', { name: 'レシピ名を取得' }).click()
     const titleAction = fetchArea.locator('.settings-action').filter({
       has: page.getByRole('heading', { name: 'レシピ名をまとめて取得' }),
     })
-    await expect(titleAction.getByRole('status')).toContainText('完了：1件を更新')
-    await fetchArea.getByRole('button', { name: '材料などを再取得（1件）' }).click()
+    await expect(titleAction.getByRole('status')).toHaveText('完了：1件を更新。')
+    await fetchArea.getByRole('button', { name: '材料などを取得' }).click()
     const contentAction = fetchArea.locator('.settings-action').filter({
       has: page.getByRole('heading', { name: '材料などをまとめて取得' }),
     })
-    await expect(contentAction.getByRole('status')).toContainText('完了：1件を更新')
+    await expect(contentAction.getByRole('status')).toHaveText('完了：1件を更新。')
     expect(uncachedCalls).toBeGreaterThanOrEqual(2)
     await page.getByRole('button', { name: '一覧に戻る' }).click()
     await page.getByRole('textbox', { name: 'レシピを検索' }).fill('新しい自動材料')
@@ -1206,7 +1203,7 @@ test.describe('タイトル取得の回復', () => {
     await expect(page.locator('.recipe-card')).toContainText('手入力したタイトル')
   })
 
-  test('設定から空欄のレシピ名を一括取得し、入力済みの名前を保つ', async ({ page }) => {
+  test('設定から空欄のレシピ名を取得し、入力済みの名前を保つ', async ({ page }) => {
     test.skip(!METADATA_ENDPOINT, 'タイトル取得用エンドポイントが必要')
     await openApp(page)
     for (const [path, title] of [
@@ -1236,20 +1233,26 @@ test.describe('タイトル取得の回復', () => {
     })
     await openSettings(page)
     await expect(page.getByText('対象は3件です。')).toBeVisible()
-    await page.getByRole('button', { name: 'レシピ名を一括取得' }).click()
-    await expect(page.getByRole('status').filter({ hasText: '完了：' })).toContainText(
-      '完了：2件を更新、1件は更新できませんでした。',
+    await page.getByRole('button', { name: 'レシピ名を取得' }).click()
+    await expect(page.getByRole('status').filter({ hasText: '完了：' })).toHaveText(
+      '完了：2件を更新、1件は取得できませんでした。',
     )
-    await expect(page.getByText('対象は1件です。')).toBeVisible()
+    // 自動で入った2件も取得し直せるので、対象の数は減らない。
+    await expect(page.getByText('対象は3件です。')).toBeVisible()
 
-    await page.route(endpoint, (route) =>
-      route.fulfill({ json: { title: '三件目の名前', imageUrl: '' } }),
+    await page.route(endpoint, (route) => {
+      const target = new URL(route.request().url()).searchParams.get('url') || ''
+      const title = target.endsWith('/three')
+        ? '三件目の名前'
+        : target.endsWith('/one')
+          ? '一件目の名前'
+          : '二件目の名前'
+      return route.fulfill({ json: { title, imageUrl: '' } })
+    })
+    await page.getByRole('button', { name: 'レシピ名を取得' }).click()
+    await expect(page.getByRole('status').filter({ hasText: '完了：' })).toHaveText(
+      '完了：1件を更新、2件は変更なし。',
     )
-    await page.getByRole('button', { name: 'レシピ名を一括取得' }).click()
-    await expect(page.getByRole('status').filter({ hasText: '完了：' })).toContainText(
-      '完了：1件を更新、0件は更新できませんでした。',
-    )
-    await expect(page.getByRole('button', { name: 'レシピ名を一括取得' })).toBeDisabled()
     await page.getByRole('button', { name: '一覧に戻る' }).click()
     await expect(page.locator('.recipe-card .card-title')).toContainText([
       '手入力した名前',
