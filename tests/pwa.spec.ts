@@ -72,6 +72,8 @@ test('PWAの配信元を停止しても再表示・端末内の編集ができ�
       'https://cookpad.com/jp/recipes/123?ref=share#step-2',
     )
     await page.getByRole('button', { name: '閉じる', exact: true }).click()
+    // 詳細を閉じると積んだ履歴を戻すため、戻り終えてから再読み込みする。
+    await expect.poll(() => page.evaluate(() => history.state?.hitosajiLayer ?? 0)).toBe(0)
     const previousTime = await page.evaluate(() => performance.timeOrigin)
     await stop()
     await page.reload()

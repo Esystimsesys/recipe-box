@@ -2,6 +2,18 @@ import { useEffect, useRef } from 'react'
 
 const KEY = 'hitosajiLayer'
 let pendingBack: number | undefined
+let backInFlight = false
+let afterBack: (() => void)[] = []
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    if (!backInFlight) return
+    backInFlight = false
+    const queued = afterBack
+    afterBack = []
+    queued.forEach((run) => run())
+  })
+}
 
 function layerDepth(state: unknown): number {
   const depth = (state as Record<string, unknown> | null)?.[KEY]
@@ -19,28 +31,38 @@ export function useHistoryBack(enabled: boolean, onBack: () => boolean) {
   })
   useEffect(() => {
     if (!enabled) return
-    let depth = layerDepth(history.state)
-    if (pendingBack !== undefined && depth > 0) {
-      // 閉じた直後に開き直した（StrictModeの再実行や別レシピへの切り替え）ので、同じ履歴を使い回す。
-      window.clearTimeout(pendingBack)
-      pendingBack = undefined
-    } else {
-      depth += 1
-      history.pushState({ ...history.state, [KEY]: depth }, '')
-    }
+    let depth = 0
     let popped = false
     const onPopState = () => {
       if (layerDepth(history.state) >= depth) return
       if (onBackRef.current()) popped = true
       else history.pushState({ ...history.state, [KEY]: depth }, '')
     }
-    window.addEventListener('popstate', onPopState)
+    const push = () => {
+      depth = layerDepth(history.state) + 1
+      history.pushState({ ...history.state, [KEY]: depth }, '')
+      window.addEventListener('popstate', onPopState)
+    }
+    if (pendingBack !== undefined && layerDepth(history.state) > 0) {
+      // 閉じた直後に開き直した（StrictModeの再実行や別レシピへの切り替え）ので、同じ履歴を使い回す。
+      window.clearTimeout(pendingBack)
+      pendingBack = undefined
+      depth = layerDepth(history.state)
+      window.addEventListener('popstate', onPopState)
+    } else if (backInFlight) {
+      // 前の履歴を戻している途中に積むと、戻った先で閉じてしまうため、戻り終えてから積む。
+      afterBack.push(push)
+    } else {
+      push()
+    }
     return () => {
+      afterBack = afterBack.filter((run) => run !== push)
       window.removeEventListener('popstate', onPopState)
-      if (popped || layerDepth(history.state) !== depth) return
+      if (popped || !depth || layerDepth(history.state) !== depth) return
       // ボタンなどで閉じたときは、積んだ履歴を戻して取り除く。
       pendingBack = window.setTimeout(() => {
         pendingBack = undefined
+        backInFlight = true
         history.back()
       })
     }
