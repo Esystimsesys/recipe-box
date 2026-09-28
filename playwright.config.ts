@@ -16,8 +16,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5190',
     viewport: { width: 1280, height: 900 },
-    // 一時的な調査：CIでは通ったテストのトレースも残す。
-    trace: process.env.CI ? 'on' : 'retain-on-failure',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [
