@@ -79,6 +79,63 @@ async function closeDialog(page: Page, name: string) {
   await expect(dialog).toBeHidden()
 }
 
+test('ブラウザの戻る操作でレシピ詳細だけを閉じる', async ({ page }) => {
+  await openApp(page)
+  const detail = await addLinkRecipe(page)
+  await page.goBack()
+  await expect(detail).toBeHidden()
+  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
+
+  // ボタンで閉じたときは積んだ履歴を取り除き、次に開いたときの戻る操作で閉じられる。
+  const card = page.getByRole('button', { name: /鶏と玉ねぎを開く/ })
+  await card.click()
+  await closeDialog(page, 'レシピ')
+  await expect.poll(() => page.evaluate(() => history.state?.hitosajiLayer ?? 0)).toBe(0)
+  await card.click()
+  await expect(detail).toBeVisible()
+  await page.goBack()
+  await expect(detail).toBeHidden()
+  await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
+})
+
+test.describe('スワイプ', () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } })
+
+  async function swipe(dialog: Locator, fromX: number, toX: number) {
+    await dialog.evaluate(
+      async (element, [fromX, toX]) => {
+        const fire = (type: string, x: number) => {
+          const touch = new Touch({ identifier: 1, target: element, clientX: x, clientY: 400 })
+          const touches = type === 'touchend' ? [] : [touch]
+          element.dispatchEvent(
+            new TouchEvent(type, { touches, changedTouches: [touch], bubbles: true }),
+          )
+        }
+        fire('touchstart', fromX)
+        for (let step = 1; step <= 5; step += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 16))
+          fire('touchmove', fromX + ((toX - fromX) * step) / 5)
+        }
+        fire('touchend', toX)
+      },
+      [fromX, toX],
+    )
+  }
+
+  test('レシピ詳細を右へスワイプすると一覧に戻る', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', 'デスクトップ版WebKitはタッチイベントを作れない')
+    await openApp(page)
+    const detail = await addLinkRecipe(page)
+    await swipe(detail, 200, 60)
+    await page.waitForTimeout(300)
+    await expect(detail).toBeVisible()
+    await swipe(detail, 60, 300)
+    await expect(detail).toBeHidden()
+    await expect(page.getByRole('heading', { name: /集めたレシピ/ })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => history.state?.hitosajiLayer ?? 0)).toBe(0)
+  })
+})
+
 test('レシピ詳細を開いた直後は閉じるボタンを強調しない', async ({ page }) => {
   await openApp(page)
   const detail = await addLinkRecipe(page)

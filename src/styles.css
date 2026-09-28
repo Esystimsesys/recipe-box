@@ -1127,6 +1127,11 @@ textarea:disabled {
   outline: none;
 }
 
+/* 横の動きはスワイプで閉じる操作に使う。 */
+.swipe-to-close {
+  touch-action: pan-y pinch-zoom;
+}
+
 .dialog-body {
   min-height: 0;
   overflow: auto;
