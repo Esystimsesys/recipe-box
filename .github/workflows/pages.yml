@@ -37,7 +37,7 @@ jobs:
           VITE_LINK_METADATA_ENDPOINT: ${{ env.LINK_METADATA_ENDPOINT }}
       # 失敗したテストのトレースと画面を残し、CIでしか起きない失敗を調べられるようにする。
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: always()
         with:
           name: playwright-results
           path: test-results/
