@@ -77,6 +77,16 @@ async function closeDialog(page: Page, name: string) {
   const dialog = page.getByRole('dialog', { name })
   await dialog.getByRole('button', { name: '閉じる' }).click()
   await expect(dialog).toBeHidden()
+  // 詳細などは閉じると積んだ履歴を戻す。戻り終える前の再読み込みは中断されるため、戻り終えるまで待つ。
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (history.state?.hitosajiLayer ?? 0) ===
+          document.querySelectorAll('dialog.swipe-to-close[open]').length,
+      ),
+    )
+    .toBe(true)
 }
 
 test('ブラウザの戻る操作でレシピ詳細だけを閉じる', async ({ page }) => {
@@ -279,6 +289,8 @@ test('手動登録の複数画像を保存し、作った状態を付けて削�
 test('バックアップを別コンテキストへ復元し、重複を上書きせず不正ファイルも拒否する', async ({
   browser,
 }) => {
+  // ページを3つ使い操作も多いため、CIのWebKitでは30秒の上限近く（約27秒）かかる。
+  test.slow()
   const sourceContext = await browser.newContext()
   const source = await sourceContext.newPage()
   await routeLinkMetadata(source)
